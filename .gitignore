@@ -1,0 +1,39 @@
+# Local agent overlays (machine-specific paths / private notes)
+AGENTS.local.md
+CLAUDE.local.md
+**/.claude/CLAUDE.local.md
+magellen-trade-harness.code-workspace
+
+# Supplemental project docs linked from the local Obsidian vault
+docs/project-notes
+
+# Secrets and env
+.env
+.env.*
+!.env.example
+secrets.env
+*.pem
+*.key
+
+# Local secret store copies (never commit)
+.config/
+
+# Runtime / journals
+journals/
+*.journal.jsonl
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
