@@ -1,25 +1,29 @@
 # magellen-trade-harness
 
-## Purpose
+## What this repo is doing
 
-Thin paper-trade harness. Map an already-reviewed decision into a competition / paper API, record a journal, and keep the research kernel elsewhere.
+- Harness runtime experiments (instances, skills, Claude Code / other agents).
+- Competition adapters under `src/competitions/` (ClawStreet first).
 
-## Boundaries
+## What works now
 
-- Do: ClawStreet adapter, decision schema, risk gates, journal, CLI.
-- Do not: live-money trading, ML strategies, earnings parsers, multi-agent research loops, ranking-chasing indicator bots.
-- Secrets never enter git, chat, or plaintext logs.
+| CLI | Capability |
+|-----|------------|
+| `uv run clawstreet` | status / portfolio / order / fills / orders / audit / register / http-docs |
+| `uv run harness` | skills list; instance init / launch / sync-skills / sync-settings |
 
-## Local supplements
+- Trade secrets: `instances/<name>/agent/secrets.env` (preferred).
+- Claude proxy/auth: repo `.env` + instance `cc-env` → `harness instance sync-settings`.
+- Isolation: one ClawStreet agent per instance; instance ops in local `audit/`; platform history via `fills`/`orders`.
+- Prefer CLI; raw HTTP via `clawstreet http-docs`.
 
-If `AGENTS.local.md` exists in the repo root, **read it before coding**.
-It holds machine-local paths and links to project notes that are intentionally not in this public repository.
+## Package layout
 
-Same rule for `CLAUDE.local.md` when present.
+- `src/competitions/clawstreet/` — trade client + CLI
+- `src/runtime/` — instance scaffolding + `harness` CLI
+- `skills/` — shared skill library
+- `instances/` — gitignored workdirs
 
-## Conventions
+## Local overlays
 
-- Prefer a small Python package under `src/` when implementing the harness.
-- Default order path is dry-run until explicitly disabled.
-- Every order intent needs non-empty `reasoning`.
-- After project-related work that changes status or decisions, update the local project `CONTEXT.md` pointed to by `AGENTS.local.md` when that file is available.
+If `AGENTS.local.md` exists, read it for machine paths and project-notes links.

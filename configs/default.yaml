@@ -1,0 +1,6 @@
+# Default trade adapter settings (repo-level)
+default_dry_run: true
+require_reasoning: true
+min_reasoning_chars: 10
+request_timeout_seconds: 20
+local_audit: true

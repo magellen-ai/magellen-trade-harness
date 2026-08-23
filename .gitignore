@@ -18,8 +18,9 @@ secrets.env
 # Local secret store copies (never commit)
 .config/
 
-# Runtime / journals
+# Runtime / journals / instances
 journals/
+instances/
 *.journal.jsonl
 __pycache__/
 *.py[cod]
@@ -31,6 +32,7 @@ venv/
 dist/
 build/
 *.egg-info/
+src/*.egg-info/
 
 # Editor / OS
 .DS_Store
