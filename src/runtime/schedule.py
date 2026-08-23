@@ -812,8 +812,7 @@ def _run_shell(
     *,
     cwd: Optional[Path] = None,
 ) -> tuple[int, str]:
-    env = os.environ.copy()
-    env["HARNESS_INSTANCE"] = str(instance_dir)
+    env = instance_mod.instance_process_env(instance_dir)
     try:
         proc = subprocess.run(
             command,
@@ -846,8 +845,7 @@ def _run_argv(
     timeout: int,
     log_file: Optional[Path] = None,
 ) -> int:
-    env = os.environ.copy()
-    env["HARNESS_INSTANCE"] = str(instance_dir)
+    env = instance_mod.instance_process_env(instance_dir)
     try:
         if log_file is None:
             proc = subprocess.run(

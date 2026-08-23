@@ -5,15 +5,16 @@ skill_dirs:
 wrappers:
   - clawstreet
   - harness
-settings:
-  path: .claude/settings.json
-  env_from: cc-env
+env_from: cc-env
+materialize:
+  - src: settings.json
+    dest: .claude/settings.json
 launch:
   argv:
     - claude
     - --setting-sources
     - project,local
-  sync_settings_before: true
+  sync_before: true
 # Default wake binding; profiles may override schedule.actions entirely.
 schedule_actions:
   wake-main:

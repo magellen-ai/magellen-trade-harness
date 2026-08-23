@@ -1,0 +1,23 @@
+{
+  "providers": {
+    "aiproxy": {
+      "baseUrl": "https://ai-proxy.magellen.top:8319/v1",
+      "api": "openai-completions",
+      "apiKey": "$AIPROXY_API_KEY",
+      "compat": {
+        "supportsDeveloperRole": false,
+        "supportsReasoningEffort": false
+      },
+      "models": [
+        {
+          "id": "grok-4.6",
+          "name": "grok-4.6",
+          "reasoning": true,
+          "input": ["text", "image"],
+          "contextWindow": 500000,
+          "maxTokens": 128000
+        }
+      ]
+    }
+  }
+}

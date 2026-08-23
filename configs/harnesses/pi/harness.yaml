@@ -1,0 +1,68 @@
+# Thin harness binding: how to talk to Pi (badlogic/pi-coding-agent).
+# Isolation: PI_CODING_AGENT_DIR + CLI flags disable ~/.pi / ~/.agents discovery.
+# Do not run bare `pi` inside the instance — use `./bin/pi` or harness instance launch.
+skill_dirs:
+  - .agents/skills
+wrappers:
+  - clawstreet
+  - harness
+env_from: pi-env
+process_env_policy: minimal
+process_env:
+  PI_CODING_AGENT_DIR: "{instance_dir}/.pi/agent"
+  PI_CODING_AGENT_SESSION_DIR: "{instance_dir}/.pi/sessions"
+  PI_SKIP_VERSION_CHECK: "1"
+materialize:
+  - src: agent/settings.json
+    dest: .pi/agent/settings.json
+  - src: agent/models.json
+    dest: .pi/agent/models.json
+  - src: agent/auth.json
+    dest: .pi/agent/auth.json
+  - src: project-settings.json
+    dest: .pi/settings.json
+  - src: bin/pi.sh
+    dest: bin/pi
+    mode: 0o755
+# Flags: agent-dir via env; drop user packages/skills/prompts/themes and ancestor
+# AGENTS.md; keep only instance AGENTS.md + .agents/skills.
+launch:
+  argv:
+    - pi
+    - --approve
+    - --no-extensions
+    - --no-prompt-templates
+    - --no-themes
+    - --no-skills
+    - --skill
+    - .agents/skills
+    - --no-context-files
+    - --append-system-prompt
+    - AGENTS.md
+  sync_before: true
+schedule_actions:
+  wake-main:
+    cwd: instance
+    before:
+      - argv:
+          - uv
+          - run
+          - harness
+          - instance
+          - sync-settings
+          - "{instance}"
+    argv:
+      - pi
+      - -p
+      - "{prompt}"
+      - -c
+      - --approve
+      - --no-extensions
+      - --no-prompt-templates
+      - --no-themes
+      - --no-skills
+      - --skill
+      - .agents/skills
+      - --no-context-files
+      - --append-system-prompt
+      - AGENTS.md

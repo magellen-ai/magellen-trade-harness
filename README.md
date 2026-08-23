@@ -34,19 +34,21 @@ uv run clawstreet status|portfolio|order|fills|orders|audit|register|http-docs
 
 Scaffolding is config-driven (not hardcoded in Python):
 
-- `configs/harnesses/<id>/` — thin tool binding (`launch.argv`, `skill_dirs`, default wake action)
-- `configs/profiles/<id>/` — experiment pack (`CLAUDE.md` / models / skills); many profiles may share one harness
+- `configs/harnesses/<id>/` — thin tool binding + **materialize templates** (`env_from`, `process_env`, `launch.argv`)
+- `configs/profiles/<id>/` — experiment pack (`CLAUDE.md` / `AGENTS.md` / skills); many profiles may share one harness
 
 ```bash
 uv run harness skills list
 uv run harness profiles list
 uv run harness harnesses list
 uv run harness instance init demo --profile clawstreet-claude-default
-uv run harness instance sync-settings demo   # expand env_from $VAR → settings.path
-uv run harness instance launch demo --print  # runs config launch.argv
+uv run harness instance init demo-pi --profile clawstreet-pi-default
+uv run harness instance sync-settings demo   # render materialize templates
+uv run harness instance launch --show-cmd demo
+uv run harness instance launch demo          # interactive / runs launch.argv
 ```
 
-Instance `config.yaml` is self-contained after init (`profile`/`harness` ids recorded). `cc-env` supports `$VAR` / `${VAR}` from repo-root `.env`.
+Instance `config.yaml` is self-contained after init. Env maps (`cc-env` / `pi-env`) support `$VAR` / `${VAR}` from repo-root `.env`. Pi instances use `process_env_policy: minimal` + `PI_CODING_AGENT_DIR` (no `~/.pi`); start with `./bin/pi` or `harness instance launch`, not bare `pi`.
 
 Isolation: **one ClawStreet agent per instance** (separate paper account). Instance dirs are gitignored.
 

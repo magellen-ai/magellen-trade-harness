@@ -23,9 +23,48 @@ except ImportError:  # pragma: no cover
 
 
 _ENV_REF = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)")
-_PLACEHOLDER = re.compile(r"\{\{(\w+)\}\}")
+_PLACEHOLDER = re.compile(r"\{\{([\w.]+)\}\}")
+_SIMPLE_BRACE = re.compile(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}")
 
 DEFAULT_PROFILE = "clawstreet-claude-default"
+
+# Env keys kept when process_env_policy=minimal (harness isolation from host secrets).
+_MINIMAL_ENV_KEYS = frozenset(
+    {
+        "PATH",
+        "HOME",
+        "USER",
+        "LOGNAME",
+        "SHELL",
+        "TERM",
+        "TERMINFO",
+        "COLORTERM",
+        "LANG",
+        "LC_ALL",
+        "LC_CTYPE",
+        "TZ",
+        "TMPDIR",
+        "TMP",
+        "TEMP",
+        "DISPLAY",
+        "WAYLAND_DISPLAY",
+        "XDG_RUNTIME_DIR",
+        "XDG_CONFIG_HOME",
+        "XDG_DATA_HOME",
+        "SSL_CERT_FILE",
+        "SSL_CERT_DIR",
+        "REQUESTS_CA_BUNDLE",
+        "CURL_CA_BUNDLE",
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "NO_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "no_proxy",
+        "NODE_PATH",
+        "NPM_CONFIG_PREFIX",
+    }
+)
 
 
 def repo_root() -> Path:
@@ -184,8 +223,14 @@ def build_instance_config(
         cfg["skill_dirs"] = list(harness["skill_dirs"])
     if harness.get("wrappers"):
         cfg["wrappers"] = list(harness["wrappers"])
-    if harness.get("settings"):
-        cfg["settings"] = dict(harness["settings"])
+    if harness.get("env_from"):
+        cfg["env_from"] = harness["env_from"]
+    if harness.get("process_env"):
+        cfg["process_env"] = dict(harness["process_env"])
+    if harness.get("process_env_policy"):
+        cfg["process_env_policy"] = harness["process_env_policy"]
+    if harness.get("materialize"):
+        cfg["materialize"] = list(harness["materialize"])
     if harness.get("launch"):
         cfg["launch"] = dict(harness["launch"])
 
@@ -210,11 +255,30 @@ def build_instance_config(
 
 
 def _expand_placeholders(text: str, vars: dict[str, str]) -> str:
+    """Expand ``{{name}}`` / ``{{env.KEY}}``. Unknown ``env.*`` raises; others stay literal."""
+
     def repl(match: re.Match[str]) -> str:
         key = match.group(1)
-        return vars.get(key, match.group(0))
+        if key.startswith("env."):
+            env_key = key[4:]
+            if env_key not in vars:
+                raise KeyError(env_key)
+            return vars[env_key]
+        if key in vars:
+            return vars[key]
+        return match.group(0)
 
     return _PLACEHOLDER.sub(repl, text)
+
+
+def _expand_simple_braces(text: str, vars: dict[str, str]) -> str:
+    """Expand ``{name}`` for process_env values (unknown keys stay literal)."""
+
+    def repl(match: re.Match[str]) -> str:
+        key = match.group(1)
+        return vars[key] if key in vars else match.group(0)
+
+    return _SIMPLE_BRACE.sub(repl, text)
 
 
 def copy_skeleton(
@@ -378,55 +442,130 @@ def expand_env_map(cfg: dict[str, Any], key: str = "cc-env") -> tuple[dict[str, 
 
 
 # ---------------------------------------------------------------------------
-# Settings / launch (paths and argv come from instance config, seeded by harness)
+# Runtime materialize + process env (harness-agnostic)
 # ---------------------------------------------------------------------------
 
 
-def sync_settings(instance_dir: Path, cfg: Optional[dict[str, Any]] = None) -> Path:
-    """Write settings JSON from config settings.path + env_from (harness-agnostic)."""
+def _template_vars(
+    instance_dir: Path, cfg: dict[str, Any], resolved_env: dict[str, str]
+) -> dict[str, str]:
+    name = str(cfg.get("name") or instance_dir.name)
+    return {
+        **resolved_env,
+        "name": name,
+        "instance": name,
+        "instance_dir": str(instance_dir.resolve()),
+        "profile": str(cfg.get("profile") or ""),
+        "harness": str(cfg.get("harness") or ""),
+        "skills": ", ".join(cfg.get("skills") or []) or "(none)",
+        "repo_root": str(repo_root()),
+        # Raw JSON object for templates like ``"env": {{env_json}}`` (not a string).
+        "env_json": json.dumps(resolved_env, ensure_ascii=False, indent=2),
+    }
+
+
+def resolve_env_from(
+    cfg: dict[str, Any],
+) -> tuple[str, dict[str, str], list[str]]:
+    """Return (env_from_key, resolved_map, missing_names)."""
+    key = str(cfg.get("env_from") or "cc-env")
+    env, missing = expand_env_map(cfg, key)
+    return key, env, missing
+
+
+def instance_process_env(
+    instance_dir: Path, cfg: Optional[dict[str, Any]] = None
+) -> dict[str, str]:
+    """Env for launch / schedule subprocesses (secrets + harness process_env)."""
     if cfg is None:
         cfg = load_yaml(instance_dir / "config.yaml")
-
-    settings_meta = cfg.get("settings") or {}
-    if not isinstance(settings_meta, dict) or not settings_meta.get("path"):
+    instance_dir = instance_dir.resolve()
+    _, resolved, _missing = resolve_env_from(cfg)
+    vars = _template_vars(instance_dir, cfg, resolved)
+    policy = str(cfg.get("process_env_policy") or "inherit")
+    if policy == "minimal":
+        env = {k: os.environ[k] for k in _MINIMAL_ENV_KEYS if k in os.environ}
+    elif policy == "inherit":
+        env = os.environ.copy()
+    else:
         raise ValueError(
-            "config.yaml missing settings.path "
-            "(seeded from harness at init; or add manually)"
+            f"unknown process_env_policy {policy!r} (expected inherit|minimal)"
         )
-    rel = str(settings_meta["path"])
-    settings_path = instance_dir / rel
-    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    env.update(resolved)
+    raw_pe = cfg.get("process_env") or {}
+    if isinstance(raw_pe, dict):
+        for k, v in raw_pe.items():
+            if v is None:
+                continue
+            env[str(k)] = _expand_simple_braces(
+                _expand_placeholders(str(v), vars), vars
+            )
+    env["HARNESS_INSTANCE"] = str(instance_dir)
+    return env
 
-    existing: dict[str, Any] = {}
-    if settings_path.exists():
+
+def sync_runtime(
+    instance_dir: Path, cfg: Optional[dict[str, Any]] = None
+) -> list[Path]:
+    """Render harness ``materialize`` templates into the instance (no harness-specific JSON)."""
+    if cfg is None:
+        cfg = load_yaml(instance_dir / "config.yaml")
+    instance_dir = instance_dir.resolve()
+    harness_id = cfg.get("harness")
+    if not harness_id:
+        raise ValueError("config.yaml missing harness id")
+    harness_dir = harnesses_root() / str(harness_id)
+    if not harness_dir.is_dir():
+        raise FileNotFoundError(f"harness dir not found: {harness_dir}")
+
+    _, resolved, missing = resolve_env_from(cfg)
+    vars = _template_vars(instance_dir, cfg, resolved)
+    entries = cfg.get("materialize") or []
+    if not isinstance(entries, list):
+        raise ValueError("config.yaml materialize must be a list")
+
+    written: list[Path] = []
+    for i, entry in enumerate(entries):
+        if not isinstance(entry, dict):
+            raise ValueError(f"materialize[{i}] must be a mapping")
+        src_rel = entry.get("src")
+        dest_rel = entry.get("dest")
+        if not src_rel or not dest_rel:
+            raise ValueError(f"materialize[{i}] needs src and dest")
+        src = harness_dir / str(src_rel)
+        if not src.is_file():
+            raise FileNotFoundError(f"materialize src not found: {src}")
+        dest = instance_dir / str(dest_rel)
+        dest.parent.mkdir(parents=True, exist_ok=True)
         try:
-            existing = json.loads(settings_path.read_text(encoding="utf-8"))
-            if not isinstance(existing, dict):
-                existing = {}
-        except json.JSONDecodeError:
-            existing = {}
-
-    env_from = str(settings_meta.get("env_from") or "cc-env")
-    env, _missing = expand_env_map(cfg, env_from)
-    out: dict[str, Any] = {**existing, "env": env}
-    if "permissions" in existing:
-        out["permissions"] = existing["permissions"]
-    elif "permissions" in settings_meta:
-        out["permissions"] = settings_meta["permissions"]
-
-    settings_path.write_text(
-        json.dumps(out, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-    os.chmod(settings_path, 0o600)
-    return settings_path
+            text = _expand_placeholders(src.read_text(encoding="utf-8"), vars)
+        except KeyError as e:
+            hint = ""
+            if missing:
+                hint = f"; also unresolved $refs: {missing}"
+            raise ValueError(
+                f"materialize {src_rel}: missing env key {e.args[0]!r} "
+                f"(add it to config {cfg.get('env_from') or 'env'} / repo .env){hint}"
+            ) from None
+        dest.write_text(text, encoding="utf-8")
+        mode = entry.get("mode", 0o600)
+        if isinstance(mode, str):
+            mode = int(mode, 0)
+        os.chmod(dest, int(mode))
+        written.append(dest)
+    return written
 
 
-def sync_instance_settings(name: str) -> Path:
+def sync_settings(instance_dir: Path, cfg: Optional[dict[str, Any]] = None) -> list[Path]:
+    """Alias for :func:`sync_runtime` (CLI / schedule hooks keep the old name)."""
+    return sync_runtime(instance_dir, cfg)
+
+
+def sync_instance_settings(name: str) -> list[Path]:
     instance_dir = instances_root() / name
     if not instance_dir.is_dir():
         raise FileNotFoundError(f"instance not found: {instance_dir}")
-    return sync_settings(instance_dir, load_yaml(instance_dir / "config.yaml"))
+    return sync_runtime(instance_dir, load_yaml(instance_dir / "config.yaml"))
 
 
 def launch_command(name: str, cfg: Optional[dict[str, Any]] = None) -> list[str]:
@@ -446,29 +585,48 @@ def launch_command(name: str, cfg: Optional[dict[str, Any]] = None) -> list[str]
     return [str(x) for x in argv]
 
 
-def launch_instance(name: str, dry_print: bool = False) -> int:
+def _launch_sync_before(launch: dict[str, Any]) -> bool:
+    if "sync_before" in launch:
+        return bool(launch.get("sync_before"))
+    # Backward-compatible key from older instance configs.
+    return bool(launch.get("sync_settings_before", True))
+
+
+def launch_instance(
+    name: str,
+    dry_print: bool = False,
+    extra_argv: Optional[list[str]] = None,
+) -> int:
     instance_dir = instances_root() / name
     if not instance_dir.is_dir():
         raise FileNotFoundError(f"instance not found: {instance_dir}")
     cfg = load_yaml(instance_dir / "config.yaml")
     launch = cfg.get("launch") or {}
-    settings_path = None
-    if isinstance(launch, dict) and launch.get("sync_settings_before", True):
-        if cfg.get("settings"):
-            settings_path = sync_settings(instance_dir, cfg)
+    written: list[Path] = []
+    if isinstance(launch, dict) and _launch_sync_before(launch):
+        if cfg.get("materialize"):
+            written = sync_runtime(instance_dir, cfg)
     cmd = launch_command(name, cfg)
+    if extra_argv:
+        cmd = cmd + [str(x) for x in extra_argv]
+    env = instance_process_env(instance_dir, cfg)
     if dry_print:
         print(f"cd {instance_dir}")
-        print(f"export HARNESS_INSTANCE={instance_dir}")
-        if settings_path:
-            print(f"# synced settings → {settings_path}")
+        for key in sorted(
+            k
+            for k in env
+            if k == "HARNESS_INSTANCE"
+            or k.startswith("PI_")
+            or k in (cfg.get("process_env") or {})
+        ):
+            print(f"export {key}={env[key]}")
+        if written:
+            print(f"# materialized → {[str(p) for p in written]}")
         print(" ".join(cmd))
         return 0
     print(f"Launching in {instance_dir}: {' '.join(cmd)}", file=sys.stderr)
-    if settings_path:
-        print(f"# synced settings → {settings_path}", file=sys.stderr)
-    env = os.environ.copy()
-    env["HARNESS_INSTANCE"] = str(instance_dir.resolve())
+    if written:
+        print(f"# materialized → {[str(p) for p in written]}", file=sys.stderr)
     return subprocess.call(cmd, cwd=str(instance_dir), env=env)
 
 
@@ -538,7 +696,7 @@ def init_instance(
 
     sync_instance_bin(name)
 
-    if cfg.get("settings"):
-        sync_settings(instance_dir, cfg)
+    if cfg.get("materialize"):
+        sync_runtime(instance_dir, cfg)
 
     return instance_dir

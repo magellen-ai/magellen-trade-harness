@@ -35,12 +35,17 @@ def cmd_instance_init(args: argparse.Namespace) -> None:
     print("Bind agent: uv run clawstreet register --instance", args.name)
     print("Or paste key into", path / "agent" / "secrets.env")
     print("Settings: uv run harness instance sync-settings", args.name)
-    print("Then: uv run harness instance launch", args.name, "--print")
+    print("Then: uv run harness instance launch --show-cmd", args.name)
 
 
 def cmd_instance_launch(args: argparse.Namespace) -> None:
+    extra = list(getattr(args, "argv", None) or [])
+    if extra and extra[0] == "--":
+        extra = extra[1:]
     try:
-        code = instance_mod.launch_instance(args.name, dry_print=args.print_only)
+        code = instance_mod.launch_instance(
+            args.name, dry_print=args.print_only, extra_argv=extra or None
+        )
     except Exception as e:
         _die(e)
     sys.exit(code)
@@ -56,17 +61,14 @@ def cmd_instance_sync_skills(args: argparse.Namespace) -> None:
 
 def cmd_instance_sync_settings(args: argparse.Namespace) -> None:
     try:
-        path = instance_mod.sync_instance_settings(args.name)
+        written = instance_mod.sync_instance_settings(args.name)
     except Exception as e:
         _die(e)
     cfg = instance_mod.load_yaml(instance_mod.instances_root() / args.name / "config.yaml")
-    settings = cfg.get("settings") or {}
-    env_from = settings.get("env_from") if isinstance(settings, dict) else None
-    env, missing = instance_mod.expand_env_map(cfg, str(env_from or "cc-env"))
-    present = sorted(env.keys())
-    print(f"SETTINGS_OK {path}")
+    _key, env, missing = instance_mod.resolve_env_from(cfg)
+    print(f"RUNTIME_OK files={[str(p) for p in written]}")
     print(f"dotenv={instance_mod.repo_root() / '.env'}")
-    print(f"env_keys={present}")
+    print(f"env_from={cfg.get('env_from')} env_keys={sorted(env.keys())}")
     if missing:
         print(f"unresolved=$refs missing in .env/process: {missing}")
 
@@ -196,10 +198,21 @@ def register_commands(sub: argparse._SubParsersAction) -> None:
     p_launch = inst_sub.add_parser("launch", help="Run launch.argv from instance config")
     p_launch.add_argument("name")
     p_launch.add_argument(
+        "--show-cmd",
+        dest="print_only",
+        action="store_true",
+        help="Print cwd/env/command only (do not execute)",
+    )
+    p_launch.add_argument(
         "--print",
         dest="print_only",
         action="store_true",
-        help="Print command only",
+        help=argparse.SUPPRESS,  # legacy alias; prefer --show-cmd (avoids clash with pi -p/--print)
+    )
+    p_launch.add_argument(
+        "argv",
+        nargs=argparse.REMAINDER,
+        help="Extra args for the agent; put them after -- (e.g. launch NAME -- -p 'hi')",
     )
     p_launch.set_defaults(func=cmd_instance_launch)
 
@@ -209,10 +222,17 @@ def register_commands(sub: argparse._SubParsersAction) -> None:
 
     p_sync_settings = inst_sub.add_parser(
         "sync-settings",
-        help="Rewrite settings.path JSON from env_from ($VAR via repo .env)",
+        help="Materialize harness templates + resolve env_from (alias: sync-runtime)",
     )
     p_sync_settings.add_argument("name")
     p_sync_settings.set_defaults(func=cmd_instance_sync_settings)
+
+    p_sync_runtime = inst_sub.add_parser(
+        "sync-runtime",
+        help="Materialize harness templates into the instance (process_env is applied at launch/tick)",
+    )
+    p_sync_runtime.add_argument("name")
+    p_sync_runtime.set_defaults(func=cmd_instance_sync_settings)
 
     p_sync_bin = inst_sub.add_parser(
         "sync-bin",

@@ -1,6 +1,6 @@
 # Profile defaults (merged onto harness, then instance name/skills applied).
-runtime: claude-code
-model: claude
+runtime: pi
+model: aiproxy/grok-4.6
 skills:
   - clawstreet-trade
 memory:
@@ -17,9 +17,6 @@ agent:
 trade:
   cli: bin/clawstreet
   default_dry_run: true
-cc-env:
-  ANTHROPIC_BASE_URL: $ANTHROPIC_BASE_URL
-  ANTHROPIC_API_KEY: $ANTHROPIC_API_KEY
-  ANTHROPIC_MODEL: $ANTHROPIC_MODEL
-  ANTHROPIC_DEFAULT_SONNET_MODEL: $ANTHROPIC_MODEL
-  ENABLE_TOOL_SEARCH: "true"
+# Secrets for Pi models.json ($AIPROXY_API_KEY) — set in repo .env.
+pi-env:
+  AIPROXY_API_KEY: $AIPROXY_API_KEY

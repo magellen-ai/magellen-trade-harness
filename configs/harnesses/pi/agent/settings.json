@@ -1,0 +1,10 @@
+{
+  "defaultProvider": "aiproxy",
+  "defaultModel": "grok-4.6",
+  "defaultThinkingLevel": "medium",
+  "theme": "dark",
+  "packages": [],
+  "compaction": {
+    "enabled": true
+  }
+}

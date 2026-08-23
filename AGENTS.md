@@ -10,7 +10,7 @@
 
 ## What this repo is doing
 
-- Harness **runtime** experiments (instances, skills, Claude Code / other agents).
+- Harness **runtime** experiments (instances, skills, Claude Code / Pi / other agents).
 - Competition adapters under `src/competitions/` (ClawStreet first).
 
 ## What works now
@@ -22,7 +22,7 @@
 
 - Prefer **`uv run`** (not raw `python -m` / `PYTHONPATH`).
 - Trade secrets: `instances/<name>/agent/secrets.env` (preferred). Legacy: `~/.config/magellen-trade-harness/secrets.env`.
-- Claude proxy/auth: repo `.env` + instance `cc-env` → `harness instance sync-settings`.
+- Runtime auth/files: repo `.env` + instance `env_from` map → `harness instance sync-settings` (materialize) / launch injects **process_env**.
 - Isolation: one ClawStreet agent per instance (may reuse the same agent key across instances over time, but not concurrently).
 - Instance ops log: local `audit/`. Account truth: platform `fills` / `orders`.
 - Prefer CLI for trading; raw HTTP via `clawstreet http-docs` when needed.
@@ -33,11 +33,13 @@ Concrete agent content is **not** in Python. Init reads config directories:
 
 | Layer | Path | Role |
 |-------|------|------|
-| **Harness** (thin) | `configs/harnesses/<id>/harness.yaml` | How to talk to a tool: `skill_dirs`, `settings.path`, `launch.argv`, default `schedule_actions` |
-| **Profile** (many) | `configs/profiles/<id>/` | Experiment: `profile.yaml` → `harness: …`; `config.yaml` (models/skills/expose); `skeleton/` (`CLAUDE.md`, permissions, …) |
+| **Harness** (thin) | `configs/harnesses/<id>/` | Tool binding: `harness.yaml` + **template files**. Declares `env_from`, `process_env`, `materialize` (`src`→`dest`), `launch.argv`, default `schedule_actions`. Framework does not know Claude/Pi JSON shapes. |
+| **Profile** (many) | `configs/profiles/<id>/` | Experiment: `profile.yaml` → `harness: …`; `config.yaml` (skills/env map/expose); `skeleton/` (`CLAUDE.md` or `AGENTS.md`, …) |
 
-Same harness (e.g. `claude-code`) can back many profiles with different `CLAUDE.md` / `cc-env`.  
+Same harness can back many profiles.  
 `uv run harness instance init <name> --profile <id>` merges harness⊕profile into the instance (self-contained `config.yaml` + skeleton copy; existing files skipped).
+
+**Runtime sync:** `harness instance sync-settings` / `sync-runtime` only renders `materialize` templates. Launch/tick merge `env_from` + `process_env` into the subprocess environment (`process_env_policy: inherit|minimal`). Pi harness uses `minimal` + `PI_CODING_AGENT_DIR` + CLI `--no-*` flags so it does **not** use `~/.pi` / `~/.agents`; start via `./bin/pi` or `harness instance launch`, never bare `pi`.
 
 ## Schedule (instance automation)
 
@@ -62,14 +64,14 @@ This repo exists to **compare harness / context / tools** and how they change ag
 | Repo `AGENTS.md` (this file) | Coding agents working on the harness | Layout, CLIs, conventions |
 | `AGENTS.local.md` | This machine only | Paths, vault links, personal habits |
 
-Do not put register/launch/cc-env into the trading context file. Framework code has no `if claude` branches for scaffolding.
+Do not put register/launch/env maps into the trading context file. Framework code has no `if claude` / `if pi` branches for scaffolding.
 
 ## Package layout
 
 - `src/competitions/clawstreet/` — trade client + CLI
 - `src/runtime/` — instance scaffolding + `harness` CLI
 - `skills/` — shared skill library (profile selects; init links into harness `skill_dirs`)
-- `configs/harnesses/` — thin tool bindings; `configs/profiles/` — experiment packs (CLAUDE.md, models, …)
+- `configs/harnesses/` — thin tool bindings + materialize templates; `configs/profiles/` — experiment packs
 - `configs/schedules/` — schedule strategy packs
 - `instances/` — gitignored workdirs (never commit secrets or settings with keys)
 
