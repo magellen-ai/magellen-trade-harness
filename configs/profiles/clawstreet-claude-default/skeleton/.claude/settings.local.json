@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./bin/clawstreet *)",
+      "Bash(bin/clawstreet *)",
+      "Bash(./bin/schedule *)",
+      "Bash(bin/schedule *)",
+      "Bash(./bin/harness *)",
+      "Bash(bin/harness *)",
+      "Bash(uv run clawstreet *)",
+      "Bash(uv run harness *)"
+    ]
+  }
+}

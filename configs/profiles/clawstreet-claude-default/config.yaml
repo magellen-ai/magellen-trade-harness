@@ -1,27 +1,24 @@
-name: example
+# Profile defaults (merged onto harness, then instance name/skills applied).
 runtime: claude-code
 model: claude
-competition: clawstreet
 skills:
   - clawstreet-trade
 memory:
   kind: files
   path: memory
-schedule: null
+schedule:
+  pack: default
+expose:
+  schedule: [check, reload, status]
+competition: clawstreet
 agent:
   secrets_env: agent/secrets.env
   notes: One ClawStreet agent per instance (separate paper account).
 trade:
   cli: bin/clawstreet
   default_dry_run: true
-# Written into .claude/settings.json → env.
-# $VAR / ${VAR} expand from repo-root .env (dotenv) + process environment.
 cc-env:
   ANTHROPIC_BASE_URL: $ANTHROPIC_BASE_URL
   ANTHROPIC_API_KEY: $ANTHROPIC_API_KEY
   ANTHROPIC_MODEL: $ANTHROPIC_MODEL
-  # Optional: ANTHROPIC_AUTH_TOKEN: $ANTHROPIC_AUTH_TOKEN
   ENABLE_TOOL_SEARCH: "true"
-launch:
-  setting_sources: project,local
-  notes: Put secrets in repo .env; sync-settings expands $VAR into .claude/settings.json.

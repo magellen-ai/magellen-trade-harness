@@ -1,0 +1,40 @@
+# Thin harness binding: how to talk to Claude Code.
+# Experiment differences (CLAUDE.md, models, skills) live in configs/profiles/.
+skill_dirs:
+  - .claude/skills
+wrappers:
+  - clawstreet
+  - harness
+settings:
+  path: .claude/settings.json
+  env_from: cc-env
+launch:
+  argv:
+    - claude
+    - --setting-sources
+    - project,local
+  sync_settings_before: true
+# Default wake binding; profiles may override schedule.actions entirely.
+schedule_actions:
+  wake-main:
+    cwd: instance
+    defaults:
+      max_turns: "30"
+    before:
+      - argv:
+          - uv
+          - run
+          - harness
+          - instance
+          - sync-settings
+          - "{instance}"
+    argv:
+      - claude
+      - -p
+      - "{prompt}"
+      - --setting-sources
+      - project,local
+      - --permission-mode
+      - dontAsk
+      - --max-turns
+      - "{max_turns}"

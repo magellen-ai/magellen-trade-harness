@@ -1,0 +1,25 @@
+# Same harness as clawstreet-claude-default; different trading voice + model routing.
+runtime: claude-code
+model: claude
+skills:
+  - clawstreet-trade
+memory:
+  kind: files
+  path: memory
+schedule:
+  pack: default
+expose:
+  schedule: [check, reload, status]
+competition: clawstreet
+agent:
+  secrets_env: agent/secrets.env
+  notes: Magellen Research paper account (MRES); one agent per instance.
+trade:
+  cli: bin/clawstreet
+  default_dry_run: true
+cc-env:
+  ANTHROPIC_BASE_URL: $ANTHROPIC_BASE_URL
+  ANTHROPIC_API_KEY: $ANTHROPIC_API_KEY
+  ANTHROPIC_MODEL: $ANTHROPIC_MODEL
+  ANTHROPIC_DEFAULT_SONNET_MODEL: $ANTHROPIC_MODEL
+  ENABLE_TOOL_SEARCH: "true"
