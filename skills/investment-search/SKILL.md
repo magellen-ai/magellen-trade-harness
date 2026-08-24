@@ -1,6 +1,6 @@
 ---
 name: investment-search
-description: Gather external market/news evidence for paper trading. Quote via yfinance; optional web search via Tavily. Use before deciding hold vs dry-run order on a research tick.
+description: Gather external market/news evidence for paper trading. Quote/bars via yfinance; MACD scan; optional web search via Tavily. Use before deciding hold vs dry-run order on a research/scan tick.
 ---
 
 # Investment search (L1 evidence)
@@ -10,38 +10,47 @@ Do **not** treat search snippets as audited financial facts — cite them as lea
 
 ## Quote / overview (no API key)
 
-From the instance cwd (or repo root):
-
 ```bash
 uv run --with yfinance python .agents/skills/investment-search/scripts/quote.py AAPL
 uv run --with yfinance python .agents/skills/investment-search/scripts/quote.py X:BTCUSD
 ```
 
-`X:` crypto tickers are mapped to Yahoo symbols (e.g. `X:BTCUSD` → `BTC-USD`).
+`X:` crypto tickers map to Yahoo (e.g. `X:BTCUSD` → `BTC-USD`).
 
-Output is short JSON: last price, day change, crude fundamentals when Yahoo has them.
+## Historical bars
+
+```bash
+uv run --with yfinance python .agents/skills/investment-search/scripts/bars.py X:BTCUSD --interval 1h --lookback 60d
+```
+
+JSON includes OHLCV plus `position_pct_in_range` for strategy position vote.
+
+## MACD scan (schedule condition)
+
+```bash
+uv run --with yfinance python .agents/skills/investment-search/scripts/macd_scan.py X:BTCUSD X:ETHUSD X:SOLUSD
+```
+
+Exit **0** + candidate JSON when a *new* golden/death cross appears; exit **1** if none (condition skip).
+State dedupe: `memory/.macd_state.json` (machine file, not injected).
 
 ## Web / news search (optional key)
 
-If `TAVILY_API_KEY` is set in the process env (repo `.env` → harness `env_from`, or export):
-
 ```bash
-uv run python .agents/skills/investment-search/scripts/search.py "AAPL supplier concentration risk"
+uv run python .agents/skills/investment-search/scripts/search.py "BTC 24h news sentiment"
 ```
 
-Without a key the script exits non-zero with a clear message — then either skip web search
-or note “no Tavily key” in the journal and decide from quote + memory only.
+Without `TAVILY_API_KEY` the script exits non-zero — note that and continue.
 
-## How to use on a research tick
+## Strategy v0 resonance
 
-1. Read watchlist / MEMORY for symbols and pending checks.
-2. Run `quote.py` for each active symbol (cap to a few; do not spray).
-3. Optionally `search.py` for one focused question per thesis.
-4. Fold evidence into public `reasoning` (or an explicit hold note in `trade-journal.md`).
+1. MACD candidate (from scan condition) = technical vote  
+2. `search.py` 24h news/sentiment = message vote  
+3. `bars.py` position in range = position vote  
+4. Need **≥2 votes** same direction before suggesting an open; else hold.
 
 ## Rules
 
 - Never print API keys.
 - Do not dump huge raw HTML into memory files — keep 3–8 bullet facts + sources.
-- Quotes are Yahoo-unofficial via yfinance; not HFT truth.
-- Search summaries are not SEC filings; escalate to EDGAR/edgartools later if needed.
+- Quotes/bars are Yahoo-unofficial via yfinance; not HFT truth.

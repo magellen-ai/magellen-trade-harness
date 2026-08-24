@@ -1,25 +1,25 @@
-# Profile defaults (merged onto harness, then instance name/skills applied).
-runtime: pi
-model: aiproxy/grok-4.6
+# ClawStreet paper (crypto book) on Pi.
+# One ClawStreet agent per instance (separate paper account).
+model: aiproxy/gpt-5.6-luna
 skills:
   - clawstreet-trade
   - investment-search
-memory:
-  kind: files
-  path: memory
-schedule:
-  pack: pi-demo
-expose:
-  schedule: [check, reload, status]
-competition: clawstreet
-agent:
-  secrets_env: agent/secrets.env
-  notes: One ClawStreet agent per instance (separate paper account).
+# Agent-facing bin/ tools. enable entries are regex (re.fullmatch); omit = all.
+bin:
+  clawstreet:
+    # Everything except register (operator-only).
+    enable: ["(?!register$).*"]
+  schedule:
+    via: schedule
+    enable: [check, reload, status]
 trade:
-  cli: bin/clawstreet
   default_dry_run: true
-# Secrets for Pi models.json ($AIPROXY_API_KEY) — set in repo .env.
-pi-env:
+  book_tag: crypto-pi
+  soft_limit_usd: 20000
+  per_order_max_usd: 2000
+  symbol_prefix: "X:"
+# Launch secrets from repo .env ($VAR). Path agent/secrets.env is fixed for trade keys.
+env:
   AIPROXY_API_KEY: $AIPROXY_API_KEY
   # Optional; investment-search/scripts/search.py skips cleanly if unset.
   TAVILY_API_KEY: $TAVILY_API_KEY

@@ -6,9 +6,10 @@ Design (see repo AGENTS.md "Schedule"):
   (one rule per file; ``local`` shadows ``base`` by rule id). Editing source
   files does nothing until ``harness schedule reload`` validates and compiles
   them into ``schedule/state/active.json`` — the only file the runner reads.
-- ``base/`` is owned by strategy packs (``harness schedule apply <pack>``
-  overwrites the whole dir); ``local/`` is owned by the agent/operator and is
-  never touched by apply.
+- ``base/`` is owned by the instance's **profile schedule**
+  (``configs/profiles/<profile>/schedule/``; ``harness schedule apply``
+  overwrites the whole dir). ``local/`` is agent/operator-owned and is never
+  touched by apply.
 - ``schedule/state/`` (active snapshot, cursor, journal, lock) is runtime
   state: never overwritten by apply/reload beyond atomic activation.
 
@@ -866,29 +867,76 @@ def reload_schedule(instance_dir: Path) -> tuple[Optional[dict], list[Issue]]:
 
 
 # ---------------------------------------------------------------------------
-# Strategy packs
+# Profile schedules (bound to configs/profiles/<id>/schedule/)
 # ---------------------------------------------------------------------------
 
+def profile_schedule_dir(profile_id: str) -> Path:
+    return instance_mod.profiles_root() / profile_id / "schedule"
 
-def packs_root() -> Path:
-    return instance_mod.repo_root() / "configs" / "schedules"
+
+def instance_profile_id(instance_dir: Path) -> Optional[str]:
+    cfg_path = instance_dir / "config.yaml"
+    if not cfg_path.is_file():
+        return None
+    try:
+        cfg = instance_mod.load_yaml(cfg_path)
+    except Exception:  # noqa: BLE001
+        return None
+    if not isinstance(cfg, dict):
+        return None
+    profile = cfg.get("profile")
+    return str(profile) if profile else None
 
 
 def list_packs() -> list[str]:
-    root = packs_root()
+    """Profiles that ship a ``schedule/`` directory (bound strategy rules)."""
+    root = instance_mod.profiles_root()
     if not root.is_dir():
         return []
-    return sorted(p.name for p in root.iterdir() if p.is_dir())
+    out = []
+    for p in sorted(root.iterdir()):
+        if p.is_dir() and (p / "schedule").is_dir():
+            out.append(p.name)
+    return out
 
 
-def apply_pack(instance_dir: Path, pack: str) -> tuple[Optional[dict], list[Issue]]:
-    """Validate pack (merged with current local/) then overwrite base/ + reload.
+def resolve_schedule_dir(
+    instance_dir: Path,
+    pack: Optional[str] = None,
+) -> tuple[str, Path]:
+    """Resolve (label, directory) for apply.
 
+    ``pack`` is a profile id. When omitted, uses the instance's
+    ``config.yaml → profile``.
+    """
+    label = pack
+    if not label:
+        label = instance_profile_id(instance_dir)
+        if not label:
+            raise ValueError(
+                "no schedule source: pass --pack <profile> or set config.yaml profile"
+            )
+
+    pack_dir = profile_schedule_dir(label)
+    if not pack_dir.is_dir():
+        available = list_packs()
+        raise FileNotFoundError(
+            f"profile schedule not found: {pack_dir} "
+            f"(profiles with schedule/: {available or 'none'})"
+        )
+    return label, pack_dir
+
+
+def apply_pack(
+    instance_dir: Path,
+    pack: Optional[str] = None,
+) -> tuple[Optional[dict], list[Issue]]:
+    """Validate profile schedule (merged with current local/) then overwrite base/ + reload.
+
+    ``pack`` is a profile id. Omit to use the instance profile.
     Nothing changes on validation failure.
     """
-    pack_dir = packs_root() / pack
-    if not pack_dir.is_dir():
-        raise FileNotFoundError(f"pack not found: {pack_dir} (available: {list_packs()})")
+    label, pack_dir = resolve_schedule_dir(instance_dir, pack)
     ensure_layout(instance_dir)
 
     _, issues = check_rules(instance_dir, base_dir_override=pack_dir)
@@ -899,7 +947,7 @@ def apply_pack(instance_dir: Path, pack: str) -> tuple[Optional[dict], list[Issu
     if base.exists():
         shutil.rmtree(base)
     shutil.copytree(pack_dir, base)
-    journal(instance_dir, "apply_pack", pack=pack)
+    journal(instance_dir, "apply_pack", pack=label)
 
     snapshot, reload_issues = reload_schedule(instance_dir)
     assert snapshot is not None, "pack validated but reload failed"

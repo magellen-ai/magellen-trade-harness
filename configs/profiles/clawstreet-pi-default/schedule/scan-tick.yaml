@@ -1,0 +1,41 @@
+# Always-on crypto scan tick — MACD gate then optional wake.
+# Apply: uv run harness schedule apply <instance> (from profile schedule/)
+# Enable via local/ shadow with enabled: true, then reload.
+id: scan-tick
+enabled: false
+trigger:
+  kind: interval
+  every: 1h
+condition:
+  kind: script
+  timeout: 180
+  run: >
+    uv run --with yfinance python
+    .agents/skills/investment-search/scripts/macd_scan.py
+    X:BTCUSD X:ETHUSD X:SOLUSD
+action:
+  kind: wake-main
+  timeout: 1800
+  context_files:
+    - memory/world_state.md
+    - memory/working_set.md
+    - memory/risks.md
+  prompt: |
+    Scheduled crypto SCAN tick. Follow once, then stop.
+    Prefer dry-run. `--live` only with an unexpired LIVE grant in risks.md.
+
+    MACD condition output (candidates JSON):
+    {condition_output}
+
+    1) Read attached world_state / working_set / risks (@path). Soft limit + book tag are in world_state — do not invent exposure numbers.
+    2) For each MACD candidate:
+       - Technical vote = candidate direction (golden→buy bias, death→sell/reduce bias).
+       - News/sentiment vote: `uv run python .agents/skills/investment-search/scripts/search.py "SYMBOL 24h news sentiment"` (skip cleanly if no Tavily key).
+       - Position vote: `uv run --with yfinance python .agents/skills/investment-search/scripts/bars.py SYMBOL --interval 1h --lookback 60d` → use position_pct_in_range.
+       - Need ≥2 votes same direction to suggest an open/add; else HOLD and say which vote is missing.
+    3) At most ONE order this tick. Crypto only (`X:`*). Respect soft limit remaining and per-order max from world_state / `./bin/clawstreet exposure`.
+       Order via `./bin/clawstreet order SYMBOL side qty "reasoning…" --strategy macd-v0` (dry-run default).
+    4) Append a structured block to `memory/trade-journal.md` even on hold:
+       action / signals{macd,sentiment,position} / reasoning / invalidation / size_hint
+       Update `memory/working_set.md` and `memory/thesis/<symbol>.md` if thesis changed.
+    5) Stop. Do not touch account residuals listed under "other / historical" in world_state.

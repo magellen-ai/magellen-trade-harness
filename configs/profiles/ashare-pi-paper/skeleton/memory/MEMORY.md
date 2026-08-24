@@ -5,8 +5,8 @@ Soft cap ~80 lines. Promote repeated lessons from `trade-journal.md` here.
 
 ## Instance stance
 
-- A-share **local paper** via `paper-ashare` (simplified T+1 / fees / market fills).
-- Quotes: `fuyao` (HiThink) first; public fallback if needed.
+- A-share paper via `paper-ashare` (T+1 / fees / market fills).
+- Quotes: `hithink-finance` / `fuyao` first; public fallback if needed.
 - Web leads: Tavily when keyed; otherwise quote + memory only.
 - Default dry-run; `--live` only with an unexpired scoped note in `risks.md`.
 

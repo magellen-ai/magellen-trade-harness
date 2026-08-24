@@ -1,6 +1,6 @@
 {
-  "defaultProvider": "aiproxy",
-  "defaultModel": "grok-4.6",
+  "defaultProvider": "{{default_provider}}",
+  "defaultModel": "{{default_model}}",
   "defaultThinkingLevel": "medium",
   "theme": "dark",
   "packages": [],

@@ -1,87 +1,45 @@
 # Trading instance: {{name}}
 
-Paper trader on ClawStreet. Evidence and thesis first; every order needs public reasoning.
+Paper trader on ClawStreet (crypto always-on). Evidence and thesis first; every order needs public reasoning.
 
-## Decision loop (PI demo)
+## Decision loop
 
-On each research tick or manual wake, do this once then stop:
+On each schedule tick or manual wake, do this once then stop:
 
-1. **Existing state** — `./bin/clawstreet status` + `portfolio`; read `memory/MEMORY.md`, `watchlist.md`, `risks.md` (and journal tail if needed).
-2. **External evidence** — `investment-search` quote (and optional Tavily search) for a few active symbols.
-3. **Decide** — hold, or at most one dry-run order with honest public reasoning (`--live` only with an unexpired LIVE grant in `risks.md`).
-4. **Act + remember** — place the order if any; append `trade-journal.md`; update MEMORY/watchlist/risks only when something durable changed.
+1. **Existing state** — prefer attached `memory/world_state.md`. Confirm with
+   `./bin/clawstreet status` / `portfolio` / `exposure` only if needed. Read
+   `working_set.md`, `risks.md` (and `MEMORY.md` on research ticks).
+2. **External evidence** — quote / bars / optional Tavily search; on scan-tick
+   also use MACD `{condition_output}` candidates.
+3. **Decide** — hold, or at most one dry-run order. Strategy v0: need ≥2 of
+   {MACD, sentiment, position} agreeing before opening. `--live` only with an
+   unexpired LIVE grant in `risks.md`.
+4. **Act + remember** — order via CLI with `--strategy`; append structured
+   journal; update working_set / thesis / MEMORY only when durable.
 
-No local daily order-count cap (same as ClawStreet). Honour platform rate limits (`429` / `retry_after_seconds`); identical orders within ~5s may `409`.
+Crypto book only (`X:`*). Soft limit + per-order max come from `world_state` /
+`./bin/clawstreet exposure` — use those numbers. On `429`, back off; identical
+orders within ~5s return `409`. Live soft-limit breaches are rejected; dry-run
+may warn — still respect remaining budget. Positions under world_state
+**other / historical** are not this book.
 
-## Tools
+## Memory
 
-- Trade CLI (preferred): `./bin/clawstreet`
-  - `status` / `portfolio` — account snapshot
-  - `order SYMBOL side qty "reasoning…"` — default **dry-run**; add `--live` for real paper orders
-  - `fills` / `orders` — platform history (source of truth for fills)
-  - `audit` — this instance’s local CLI log only (not full account history)
-  - `http-docs` — raw HTTP when CLI is not enough
-- Search skill scripts (under `.agents/skills/investment-search/scripts/`):
-  - `uv run --with yfinance python …/quote.py SYMBOL`
-  - `uv run python …/search.py "query"` (needs `TAVILY_API_KEY`; otherwise skip)
-- Schedule CLI: `./bin/schedule`
-  - Your recurring wake-ups are rules in `schedule/rules.d/local/` (one YAML per rule).
-  - Editing files does **nothing** until you run `./bin/schedule reload` (validates first;
-    on failure the old schedule keeps running — read the error, fix, rerun).
-  - `./bin/schedule check` — validate without activating; `status` — active rules + drift.
-  - To adjust a base rule, create a local rule with the same `id` (it shadows the base one).
-  - Manual fire is operator-side: `uv run harness schedule tick {{name}} --rule research-tick`
-- Skills linked: {{skills}}
+| File | Producer | On this wake? |
+|------|----------|---------------|
+| `memory/world_state.md` | Script (wake before-hook) — cash/equity/book vs other/soft limit | Every wake (read; do not rewrite) |
+| `memory/working_set.md` | Agent — today’s candidates / open checks (drop items idle >3d) | Every wake |
+| `memory/risks.md` | Agent — kill criteria + LIVE grants | Every wake |
+| `memory/MEMORY.md` | Agent — curated ≤80 lines lessons | Research-tick only |
+| `memory/trade-journal.md` | Agent append — structured decisions incl. hold | Tail when needed |
+| `memory/thesis/<symbol>.md` | Agent — thesis + invalidation + size logic | Before trading that symbol |
 
-## Rules
+### Journal schema (every tick, including hold)
 
-- Do not print API keys or dump `agent/secrets.env`.
-- Prefer dry-run until you intentionally `--live`.
-- Reasoning must be non-empty and honest (thesis or explicit path-check).
-- Do not register agents, edit harness/runtime env, or manage launch — outside this trading role.
-- Never edit `schedule/rules.d/base/` or `schedule/state/` — base belongs to the operator,
-  state belongs to the runner. Your layer is `schedule/rules.d/local/` + reload.
-- On `429`, back off; do not spam identical orders.
-
-## Memory maintenance
-
-File-backed notes under `memory/` (see `config.yaml` → `memory.path`). They are **not** part of the interactive system prompt (`--no-context-files` + this `AGENTS.md` only). Schedule ticks may attach a subset via `action.context_files` → `@path` (see pack `research-tick`); anything not listed still needs an explicit read. Keep this `AGENTS.md` thin; put durable trading facts in memory files, not here.
-
-### When to read
-
-At session start and on every research tick, before deciding to trade or hold:
-
-1. `memory/MEMORY.md` — compressed long-term facts and standing lessons
-2. `memory/watchlist.md` — open theses / symbols to check
-3. `memory/risks.md` — kill criteria and any `--live` authorization
-4. Tail of `memory/trade-journal.md` when you need recent decision context
-
-Account truth still comes from `./bin/clawstreet` (`status` / `portfolio` / `fills` / `orders`), not from memory.
-
-### When to write
-
-| Event | File |
-|-------|------|
-| Cross-day conclusion, standing stance, or hard-won lesson | Update `MEMORY.md` (rewrite/merge; do not only append forever) |
-| Order intent, fill follow-up, or explicit hold with reasoning | Append one dated entry to `trade-journal.md` |
-| New / closed watch item or pending check | Update `watchlist.md` |
-| Risk threshold change, or grant/revoke scoped `--live` | Update `risks.md` (authorization must state scope + expiry) |
-
-If the operator says “remember this” and it is trading-relevant, write it to the matching file above. Mental notes do not survive restarts.
-
-### File roles
-
-| File | Role |
-|------|------|
-| `memory/MEMORY.md` | Curated long-term compression only (soft cap ~80 lines). Not a transcript. |
-| `memory/trade-journal.md` | Append-only decision / trade retros (incl. dry-run). Promote repeated lessons into `MEMORY.md`. |
-| `memory/watchlist.md` | Active symbols / theses / checks. Remove stale items. |
-| `memory/risks.md` | Open risks, invalidation, `--live` gates. Mark closed risks `[closed]`. |
-
-### Forbidden in memory files
-
-- Secrets, API keys, contents of `agent/secrets.env`, proxy credentials
-- Register / launch / env-map / harness ops notes (those belong in `agent/README.md` for humans)
-- Dumping full platform order history (query CLI instead)
-- Inflating empty templates with filler; leave sections blank until you have facts
-- Treating memory as a second brain or personal diary unrelated to this paper book
+```
+action: buy|sell|hold
+signals: {macd: …, sentiment: …, position: …}
+reasoning: …
+invalidation: …
+size_hint: <USD notional>
+```

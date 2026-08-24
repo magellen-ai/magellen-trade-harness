@@ -1,5 +1,5 @@
 # A-share PI paper schedule pack — research loop.
-# Apply: uv run harness schedule apply <instance> --pack ashare-pi-demo
+# Apply: uv run harness schedule apply <instance> (from profile schedule/)
 # Enable by shadowing from local/ with enabled: true, then reload.
 # Manual fire (preferred):
 #   uv run harness schedule tick <instance> --rule research-tick
@@ -18,8 +18,7 @@ action:
     - memory/risks.md
   prompt: |
     Scheduled A-share paper research tick. Follow this loop once, then stop.
-    Prefer dry-run orders. Do not print secrets.
-    Memory files above are attached via @path — use them; do not re-cat unless needed.
+    Prefer dry-run. Memory files above are attached via @path — use them.
 
     1) Gather existing state
        - `./bin/paper-ashare status` and `./bin/paper-ashare portfolio`
@@ -27,12 +26,11 @@ action:
        - Tail recent `memory/trade-journal.md` only if useful
 
     2) Gather external evidence (keep small)
-       - For 1–3 active watchlist symbols: use the `hithink-finance` skill
-         (Tonghuashun official; installed under this instance `.agents/skills/`).
+       - For 1–3 active watchlist symbols: use the `hithink-finance` skill.
          Optional: `./bin/fuyao quote 600519.SH`.
        - Optional one focused web query if TAVILY_API_KEY is available:
          `uv run python .agents/skills/investment-search/scripts/search.py "…"`
-         If no key, note that and continue with hithink-finance + memory only.
+         If no key, continue with hithink-finance + memory only.
 
     3) Think and decide
        - Hold, or one dry-run order with honest public reasoning (thesis + evidence).

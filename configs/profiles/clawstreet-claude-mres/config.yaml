@@ -1,23 +1,16 @@
-# Same harness as clawstreet-claude-default; different trading voice + model routing.
-runtime: claude-code
+# Same harness as clawstreet-claude-default; Magellen Research (MRES) voice + routing.
 model: claude
 skills:
   - clawstreet-trade
-memory:
-  kind: files
-  path: memory
-schedule:
-  pack: default
-expose:
-  schedule: [check, reload, status]
-competition: clawstreet
-agent:
-  secrets_env: agent/secrets.env
-  notes: Magellen Research paper account (MRES); one agent per instance.
+bin:
+  clawstreet:
+    enable: ["(?!register$).*"]
+  schedule:
+    via: schedule
+    enable: [check, reload, status]
 trade:
-  cli: bin/clawstreet
   default_dry_run: true
-cc-env:
+env:
   ANTHROPIC_BASE_URL: $ANTHROPIC_BASE_URL
   ANTHROPIC_API_KEY: $ANTHROPIC_API_KEY
   ANTHROPIC_MODEL: $ANTHROPIC_MODEL

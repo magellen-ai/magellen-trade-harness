@@ -1,0 +1,27 @@
+# Always-on crypto research / patrol tick.
+id: research-tick
+enabled: false
+trigger:
+  kind: interval
+  every: 4h
+action:
+  kind: wake-main
+  timeout: 1800
+  context_files:
+    - memory/world_state.md
+    - memory/working_set.md
+    - memory/risks.md
+    - memory/MEMORY.md
+  prompt: |
+    Scheduled crypto RESEARCH tick. Follow once, then stop.
+    Prefer dry-run. `--live` only with an unexpired LIVE grant in risks.md.
+
+    1) Use attached world_state / working_set / risks / MEMORY (@path). Tail `memory/trade-journal.md` only if needed. Soft limit numbers come from world_state / `./bin/clawstreet exposure` — do not hand-copy invent.
+    2) Review open theses under `memory/thesis/` for symbols in working_set; check invalidation.
+    3) Optional evidence for 1–3 active working_set symbols:
+       - `uv run --with yfinance python .agents/skills/investment-search/scripts/quote.py SYMBOL`
+       - optional `bars.py` / `search.py`
+    4) Decide hold, or at most ONE dry-run order (`X:`* only). Size ≤ remaining soft limit and per-order max.
+       `./bin/clawstreet order … --strategy research-v0`
+    5) Append structured journal entry (action/signals/reasoning/invalidation/size_hint). Update working_set / MEMORY / thesis only when durable. Remove stale working_set items (>3 days without action).
+    6) Stop. Never "fix" historical residuals that are not this book.

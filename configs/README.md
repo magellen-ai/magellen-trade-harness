@@ -2,38 +2,26 @@
 
 | Path | Purpose |
 |------|---------|
-| `harnesses/<id>/` | Thin tool binding: `harness.yaml` (`skill_dirs`, `env_from`, `process_env`, `materialize`, `launch`, default wake actions) + template files referenced by `materialize` |
-| `profiles/<id>/` | Experiment pack (`profile.yaml` → harness; `config.yaml`; `skeleton/` e.g. `CLAUDE.md` / `AGENTS.md`) |
-| `schedules/<id>/` | Schedule strategy packs applied into `instances/*/schedule/rules.d/base/` (`default`, `pi-demo`, `ashare-pi-demo`, …) |
+| `harnesses/<id>/` | Thin tool binding: `harness.yaml` (`agent_context`, `process_env`, `materialize`, `launch`) |
+| `profiles/<id>/` | Experiment: `profile.yaml` → harness; `config.yaml` (`bin` / `skills` / `env` / `trade`); `skeleton/`; **`schedule/`** |
 | `default.yaml` | Trade CLI defaults (dry-run, reasoning length, paper_ashare …) |
+
+Schedule rules are **bound to the profile**. Init seeds `schedule/rules.d/base/` from `configs/profiles/<profile>/schedule/` when empty; re-apply with `harness schedule apply <instance>` (optional `--pack <profile>`).
 
 Harnesses do **not** share a settings schema. The framework only:
 
-1. expands `env_from` (`$VAR` via repo `.env`) into process env (+ optional `process_env`)
-2. renders `materialize` templates (`{{name}}`, `{{env.KEY}}`, …) into the instance
-3. links `skills:` from repo `skills/`, and installs `skills_npx:` via **project-scoped**
-   `npx skills add` with cwd=instance (into instance `.agents/skills/`; **no `-g`**)
+1. expands `config.yaml` → `env` (`$VAR` via repo `.env`) into process env (+ optional `process_env`)
+2. renders `materialize` templates (`{{name}}`, `{{env.KEY}}`, `{{default_model}}`, …) into the instance
+3. links `skills:` / installs `skills_npx:` (project-scoped `npx skills add`, cwd=instance; **no `-g`**)
+4. writes `bin/` from profile `bin:` and appends generated **Tools/Rules** onto `agent_context` (`AGENTS.md` / `CLAUDE.md`)
 
-```yaml
-# profile config.yaml example
-skills:
-  - paper-ashare-trade
-skills_npx:
-  - package: HiThink-Tech/Financial-API
-    skill: hithink-finance
-# or: - HiThink-Tech/Financial-API@hithink-finance
-```
-
-`harness instance sync-settings|sync-skills` (and launch with `sync_before`) runs
-`npx skills update -p -y` then re-adds each `skills_npx` entry **inside that instance**.
-Do **not** vendor those skills under repo `skills/`, and do **not** use npx global installs
-for harness-managed skills.
+`bin.*.enable` entries are regexes matched with `re.fullmatch` (e.g. `(?!register$).*` excludes `register`).
 
 ```bash
 uv run harness harnesses list
 uv run harness profiles list
 uv run harness schedule packs
-uv run harness instance init <name> --profile clawstreet-claude-default
 uv run harness instance init <name> --profile clawstreet-pi-default
-uv run harness instance init <name> --profile ashare-pi-paper
+uv run harness instance sync-bin <name>   # bin/ + agent context Tools/Rules
+uv run harness schedule apply <name>
 ```

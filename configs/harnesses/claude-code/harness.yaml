@@ -1,11 +1,8 @@
 # Thin harness binding: how to talk to Claude Code.
 # Experiment differences (CLAUDE.md, models, skills) live in configs/profiles/.
+agent_context: CLAUDE.md
 skill_dirs:
   - .claude/skills
-wrappers:
-  - clawstreet
-  - harness
-env_from: cc-env
 materialize:
   - src: settings.json
     dest: .claude/settings.json

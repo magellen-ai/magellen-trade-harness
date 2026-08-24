@@ -1,7 +1,7 @@
 # Trade journal (append-only)
 
 Dated decision / trade retros (including dry-run and explicit holds).
-Promote repeated lessons into `MEMORY.md`. No secrets.
+Promote repeated lessons into `MEMORY.md`.
 
 <!--
 ## YYYY-MM-DD HH:MM TZ

@@ -1,12 +1,9 @@
 # Thin harness binding: how to talk to Pi (badlogic/pi-coding-agent).
 # Isolation: PI_CODING_AGENT_DIR + CLI flags disable ~/.pi / ~/.agents discovery.
 # Do not run bare `pi` inside the instance — use `./bin/pi` or harness instance launch.
+agent_context: AGENTS.md
 skill_dirs:
   - .agents/skills
-wrappers:
-  - clawstreet
-  - harness
-env_from: pi-env
 process_env_policy: minimal
 process_env:
   PI_CODING_AGENT_DIR: "{instance_dir}/.pi/agent"
@@ -54,6 +51,11 @@ schedule_actions:
           - instance
           - sync-settings
           - "{instance}"
+      - argv:
+          - uv
+          - run
+          - python
+          - .agents/skills/clawstreet-trade/scripts/world_state.py
     argv:
       - pi
       - -p

@@ -97,6 +97,7 @@ class ClawStreetClient:
         agent_id: Optional[str] = None,
         dry_run: bool = False,
         idempotency_key: Optional[str] = None,
+        instance_prefix: Optional[str] = None,
     ) -> dict[str, Any]:
         aid = agent_id or self.agent_id
         if not aid:
@@ -120,7 +121,12 @@ class ClawStreetClient:
                 "payload": payload,
             }
 
-        key = idempotency_key or str(uuid.uuid4())
+        if idempotency_key:
+            key = idempotency_key
+        elif instance_prefix:
+            key = f"{instance_prefix}--{uuid.uuid4()}"
+        else:
+            key = str(uuid.uuid4())
         response = self.session.post(
             f"{self.base_url}/v1/me/agents/{aid}/orders",
             json=payload,

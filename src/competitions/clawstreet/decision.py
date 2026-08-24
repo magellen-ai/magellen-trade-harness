@@ -5,12 +5,16 @@ from __future__ import annotations
 import uuid
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 
 
 @dataclass
 class Decision:
-    """Trade decision with reasoning and metadata."""
+    """Trade decision with reasoning and metadata.
+
+    Platform order payload only uses symbol/side/qty/order_type/reasoning.
+    Extra strategy fields stay in local audit / journal.
+    """
 
     decision_id: str
     symbol: str
@@ -21,6 +25,11 @@ class Decision:
     thesis_source: str
     memo_path: Optional[str]
     created_at: str
+    strategy: Optional[str] = None
+    signals: Optional[dict[str, Any]] = None
+    invalidation: Optional[str] = None
+    size_hint: Optional[float] = None
+    book_tag: Optional[str] = None
 
     @classmethod
     def create(
@@ -32,6 +41,11 @@ class Decision:
         order_type: str = "market",
         thesis_source: str = "manual",
         memo_path: Optional[str] = None,
+        strategy: Optional[str] = None,
+        signals: Optional[dict[str, Any]] = None,
+        invalidation: Optional[str] = None,
+        size_hint: Optional[float] = None,
+        book_tag: Optional[str] = None,
     ) -> "Decision":
         return cls(
             decision_id=str(uuid.uuid4()),
@@ -43,6 +57,11 @@ class Decision:
             thesis_source=thesis_source,
             memo_path=memo_path,
             created_at=datetime.now(timezone.utc).isoformat(),
+            strategy=strategy,
+            signals=signals,
+            invalidation=invalidation,
+            size_hint=size_hint,
+            book_tag=book_tag,
         )
 
     def to_dict(self) -> dict:

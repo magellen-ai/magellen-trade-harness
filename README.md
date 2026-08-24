@@ -21,7 +21,7 @@ uv run clawstreet status                     # set HARNESS_INSTANCE or use ./bin
 
 # A-share local paper on Pi (fuyao + paper-ashare + Tavily)
 uv run harness instance init ashare-pi-test --profile ashare-pi-paper
-uv run harness schedule apply ashare-pi-test --pack ashare-pi-demo
+uv run harness schedule apply ashare-pi-test   # seeds/refreshes from profile schedule/
 # keys: HITHINK_FINANCE_API_KEY / TAVILY_API_KEY / AIPROXY_API_KEY in repo .env
 ```
 
@@ -61,8 +61,8 @@ Key: https://fuyao.aicubes.cn/admin/ · Docs: `docs/fuyao.md`.
 
 Scaffolding is config-driven (not hardcoded in Python):
 
-- `configs/harnesses/<id>/` — thin tool binding + **materialize templates** (`env_from`, `process_env`, `launch.argv`)
-- `configs/profiles/<id>/` — experiment pack (`CLAUDE.md` / `AGENTS.md` / skills); many profiles may share one harness
+- `configs/harnesses/<id>/` — thin tool binding + **materialize templates** (`process_env`, `launch.argv`)
+- `configs/profiles/<id>/` — experiment pack (`CLAUDE.md` / `AGENTS.md` / skills / **`schedule/`**); many profiles may share one harness
 
 ```bash
 uv run harness skills list
@@ -75,21 +75,22 @@ uv run harness instance launch --show-cmd demo
 uv run harness instance launch demo          # interactive / runs launch.argv
 ```
 
-Instance `config.yaml` is self-contained after init. Env maps (`cc-env` / `pi-env`) support `$VAR` / `${VAR}` from repo-root `.env`. Pi instances use `process_env_policy: minimal` + `PI_CODING_AGENT_DIR` (no `~/.pi`); start with `./bin/pi` or `harness instance launch`, not bare `pi`.
+Instance `config.yaml` is self-contained after init. `env:` maps support `$VAR` / `${VAR}` from repo-root `.env`. Pi instances use `process_env_policy: minimal` + `PI_CODING_AGENT_DIR` (no `~/.pi`); start with `./bin/pi` or `harness instance launch`, not bare `pi`.
 
 Isolation: **one ClawStreet agent per instance** (separate paper account). Instance dirs are gitignored.
 
 ## schedule (instance automation)
 
-Per-instance rule engine: rule = trigger (interval/cron) × optional script condition × action. Builtin action is only `script`; other kinds (e.g. `wake-main`) resolve via `config.yaml → schedule.actions` (argv/shell templates — swap to bind another harness). Sources in `schedule/rules.d/` (`base/` = pack, `local/` = agent edits, same id shadows); edits take effect only after `reload` → `schedule/state/active.json`.
+Per-instance rule engine: rule = trigger (interval/cron) × optional script condition × action. Builtin action is only `script`; other kinds (e.g. `wake-main`) resolve via `config.yaml → schedule.actions` (argv/shell templates — swap to bind another harness). Sources in `schedule/rules.d/` (`base/` = profile schedule, `local/` = agent edits, same id shadows); edits take effect only after `reload` → `schedule/state/active.json`.
 
 ```bash
 uv run harness schedule check|reload|status <name>     # agent-safe (also ./bin/schedule inside instance)
-uv run harness schedule apply <name> --pack default    # overwrite base/ from a pack, then reload
+uv run harness schedule apply <name>                   # overwrite base/ from instance profile's schedule/
+uv run harness schedule apply <name> --pack <profile>  # optional: another profile's schedule/
 uv run harness schedule tick <name> [--dry-run] [--rule ID]  # runner; put tick in cron/systemd
-uv run harness schedule packs   # includes `default` and `pi-demo`
+uv run harness schedule packs   # profiles that ship schedule/
 ```
 
-PI demo pack (`configs/schedules/pi-demo/`): research loop prompt (memory + investment-search + dry-run order; platform rate limits only, no local daily cap). Ships disabled @ 4h. Prefer manual `tick --rule research-tick` for most tests; use a local 5m shadow only for a one-shot timer smoke.
+Crypto always-on lives under `configs/profiles/clawstreet-pi-default/schedule/` (scan / research / risk). Enable via local shadows. Prefer manual `tick --rule …` for most tests.
 
 Design notes in `AGENTS.md` ("Schedule"). Rule schema is documented at the top of `src/runtime/schedule.py`.

@@ -1,23 +1,17 @@
-# Profile defaults (merged onto harness, then instance name/skills applied).
-runtime: claude-code
+# ClawStreet paper on Claude Code.
+# One ClawStreet agent per instance (separate paper account).
 model: claude
 skills:
   - clawstreet-trade
-memory:
-  kind: files
-  path: memory
-schedule:
-  pack: default
-expose:
-  schedule: [check, reload, status]
-competition: clawstreet
-agent:
-  secrets_env: agent/secrets.env
-  notes: One ClawStreet agent per instance (separate paper account).
+bin:
+  clawstreet:
+    enable: ["(?!register$).*"]
+  schedule:
+    via: schedule
+    enable: [check, reload, status]
 trade:
-  cli: bin/clawstreet
   default_dry_run: true
-cc-env:
+env:
   ANTHROPIC_BASE_URL: $ANTHROPIC_BASE_URL
   ANTHROPIC_API_KEY: $ANTHROPIC_API_KEY
   ANTHROPIC_MODEL: $ANTHROPIC_MODEL

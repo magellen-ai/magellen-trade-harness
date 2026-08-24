@@ -1,41 +1,23 @@
-# A-share paper trading on Pi: official hithink-finance (npx, instance-scoped) + paper-ashare + Tavily.
-runtime: pi
+# A-share paper on Pi: hithink-finance (npx, instance-scoped) + paper-ashare + Tavily.
+# Local paper accounts via paper-ashare (--account). Optional web evidence via Tavily.
 model: aiproxy/grok-4.6
-# Repo-local skills (symlinked from skills/ into instance skill_dirs).
 skills:
   - paper-ashare-trade
   - investment-search
 # Official skills via project-scoped `npx skills add` (cwd = instance; NO -g).
-# Lands in instance `.agents/skills/` + `skills-lock.json`. Sync refreshes with
-# `npx skills update -p -y` then re-add.
 skills_npx:
   - package: HiThink-Tech/Financial-API
     skill: hithink-finance
-# Override harness wrappers (no clawstreet on this profile).
-wrappers:
-  - paper-ashare
-  - fuyao
-  - harness
-memory:
-  kind: files
-  path: memory
-schedule:
-  pack: ashare-pi-demo
-expose:
-  schedule: [check, reload, status]
-competition: paper_ashare
-agent:
-  secrets_env: agent/secrets.env
-  notes: >
-    Local A-share paper accounts via paper-ashare (--account).
-    Market skill: hithink-finance (npx project install into this instance .agents/skills).
-    Web evidence via Tavily (optional).
+bin:
+  paper-ashare: {}
+  fuyao: {}
+  schedule:
+    via: schedule
+    enable: [check, reload, status]
 trade:
-  cli: bin/paper-ashare
   default_dry_run: true
   default_account: default
-# Injected into Pi process (minimal policy). Values expand from repo .env.
-pi-env:
+env:
   AIPROXY_API_KEY: $AIPROXY_API_KEY
   HITHINK_FINANCE_API_KEY: $HITHINK_FINANCE_API_KEY
   TAVILY_API_KEY: $TAVILY_API_KEY

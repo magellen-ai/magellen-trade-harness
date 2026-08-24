@@ -32,16 +32,18 @@ def cmd_instance_init(args: argparse.Namespace) -> None:
     print(f"INSTANCE_OK {path}")
     print(f"profile={cfg.get('profile')} harness={cfg.get('harness')}")
     print(f"skills={cfg.get('skills')}")
-    competition = str(cfg.get("competition") or "")
-    if competition == "clawstreet":
+    from . import agent_context as ac_mod
+
+    bins = ac_mod.bin_keys(cfg)
+    if "clawstreet" in bins:
         print("Bind agent: uv run clawstreet register --instance", args.name)
         print("Or paste key into", path / "agent" / "secrets.env")
-    elif competition == "paper_ashare":
+    elif "paper-ashare" in bins:
         print(
             "Paper account: uv run paper-ashare --account default accounts init "
             f"(cwd or HARNESS_INSTANCE={path})"
         )
-        print("Keys (HITHINK/TAVILY/AIPROXY) come from repo .env via pi-env; optional agent/secrets.env")
+        print("Keys (HITHINK/TAVILY/AIPROXY) come from repo .env via config env; optional agent/secrets.env")
     else:
         print("Optional secrets:", path / "agent" / "secrets.env")
     print("Settings: uv run harness instance sync-settings", args.name)
@@ -85,7 +87,7 @@ def cmd_instance_sync_settings(args: argparse.Namespace) -> None:
     _key, env, missing = instance_mod.resolve_env_from(cfg)
     print(f"RUNTIME_OK files={[str(p) for p in written]}")
     print(f"dotenv={instance_mod.repo_root() / '.env'}")
-    print(f"env_from={cfg.get('env_from')} env_keys={sorted(env.keys())}")
+    print(f"env_key={_key} env_keys={sorted(env.keys())}")
     npx = instance_mod.normalize_skills_npx(cfg.get("skills_npx"))
     if npx:
         print(
@@ -173,16 +175,18 @@ def cmd_schedule_status(args: argparse.Namespace) -> None:
 
 def cmd_schedule_apply(args: argparse.Namespace) -> None:
     instance_dir = _schedule_instance(args)
+    pack = getattr(args, "pack", None) or None
     try:
-        snapshot, issues = schedule_mod.apply_pack(instance_dir, args.pack)
+        label, _pack_dir = schedule_mod.resolve_schedule_dir(instance_dir, pack)
+        snapshot, issues = schedule_mod.apply_pack(instance_dir, pack)
     except Exception as e:
         _die(e)
     for issue in issues:
         print("  " + issue.render())
     if not snapshot:
-        print(f"APPLY_FAIL pack={args.pack} rejected; base/ and active unchanged")
+        print(f"APPLY_FAIL pack={label} rejected; base/ and active unchanged")
         sys.exit(1)
-    print(f"APPLY_OK pack={args.pack} rules={len(snapshot['rules'])} hash={snapshot['source_hash']}")
+    print(f"APPLY_OK pack={label} rules={len(snapshot['rules'])} hash={snapshot['source_hash']}")
 
 
 def cmd_schedule_tick(args: argparse.Namespace) -> None:
@@ -196,7 +200,12 @@ def cmd_schedule_tick(args: argparse.Namespace) -> None:
 
 
 def cmd_schedule_packs(_args: argparse.Namespace) -> None:
-    print("\n".join(schedule_mod.list_packs()) or "(no configs/schedules/ packs)")
+    packs = schedule_mod.list_packs()
+    if not packs:
+        print("(no configs/profiles/*/schedule/)")
+        return
+    for name in packs:
+        print(name)
 
 
 def register_commands(sub: argparse._SubParsersAction) -> None:
@@ -249,21 +258,14 @@ def register_commands(sub: argparse._SubParsersAction) -> None:
 
     p_sync_settings = inst_sub.add_parser(
         "sync-settings",
-        help="Materialize harness templates + resolve env_from (alias: sync-runtime)",
+        help="Materialize harness templates + resolve config env (process_env applied at launch/tick)",
     )
     p_sync_settings.add_argument("name")
     p_sync_settings.set_defaults(func=cmd_instance_sync_settings)
 
-    p_sync_runtime = inst_sub.add_parser(
-        "sync-runtime",
-        help="Materialize harness templates into the instance (process_env is applied at launch/tick)",
-    )
-    p_sync_runtime.add_argument("name")
-    p_sync_runtime.set_defaults(func=cmd_instance_sync_settings)
-
     p_sync_bin = inst_sub.add_parser(
         "sync-bin",
-        help="Regenerate instance bin/ wrappers from config wrappers + expose",
+        help="Regenerate instance bin/ from config bin: + refresh agent context (Tools/Rules)",
     )
     p_sync_bin.add_argument("name")
     p_sync_bin.set_defaults(func=cmd_instance_sync_bin)
@@ -301,9 +303,13 @@ def register_commands(sub: argparse._SubParsersAction) -> None:
     )
 
     p_apply = _sched_parser(
-        "apply", "Overwrite rules.d/base/ from a configs/schedules/ pack, then reload"
+        "apply",
+        "Overwrite rules.d/base/ from the instance profile's schedule/, then reload",
     )
-    p_apply.add_argument("--pack", required=True, help="Pack name under configs/schedules/")
+    p_apply.add_argument(
+        "--pack",
+        help="Profile id whose schedule/ to apply (default: instance config.yaml profile)",
+    )
     p_apply.set_defaults(func=cmd_schedule_apply)
 
     p_tick = _sched_parser("tick", "Evaluate active schedule once (cron/systemd entrypoint)")
@@ -311,7 +317,10 @@ def register_commands(sub: argparse._SubParsersAction) -> None:
     p_tick.add_argument("--rule", help="Force-fire one rule id regardless of trigger")
     p_tick.set_defaults(func=cmd_schedule_tick)
 
-    p_packs = sched_sub.add_parser("packs", help="List configs/schedules/ strategy packs")
+    p_packs = sched_sub.add_parser(
+        "packs",
+        help="List profiles that ship configs/profiles/<id>/schedule/",
+    )
     p_packs.set_defaults(func=cmd_schedule_packs)
 
 
