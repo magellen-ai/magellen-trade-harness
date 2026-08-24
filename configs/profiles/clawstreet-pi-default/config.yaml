@@ -3,11 +3,12 @@ runtime: pi
 model: aiproxy/grok-4.6
 skills:
   - clawstreet-trade
+  - investment-search
 memory:
   kind: files
   path: memory
 schedule:
-  pack: default
+  pack: pi-demo
 expose:
   schedule: [check, reload, status]
 competition: clawstreet
@@ -20,3 +21,5 @@ trade:
 # Secrets for Pi models.json ($AIPROXY_API_KEY) — set in repo .env.
 pi-env:
   AIPROXY_API_KEY: $AIPROXY_API_KEY
+  # Optional; investment-search/scripts/search.py skips cleanly if unset.
+  TAVILY_API_KEY: $TAVILY_API_KEY

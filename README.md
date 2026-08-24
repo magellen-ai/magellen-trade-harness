@@ -59,8 +59,10 @@ Per-instance rule engine: rule = trigger (interval/cron) × optional script cond
 ```bash
 uv run harness schedule check|reload|status <name>     # agent-safe (also ./bin/schedule inside instance)
 uv run harness schedule apply <name> --pack default    # overwrite base/ from a pack, then reload
-uv run harness schedule tick <name> [--dry-run]        # runner; put this in cron/systemd
-uv run harness schedule packs
+uv run harness schedule tick <name> [--dry-run] [--rule ID]  # runner; put tick in cron/systemd
+uv run harness schedule packs   # includes `default` and `pi-demo`
 ```
+
+PI demo pack (`configs/schedules/pi-demo/`): research loop prompt (memory + investment-search + dry-run order + daily ≤20). Ships disabled @ 4h. Prefer manual `tick --rule research-tick` for most tests; use a local 5m shadow only for a one-shot timer smoke.
 
 Design notes in `AGENTS.md` ("Schedule"). Rule schema is documented at the top of `src/runtime/schedule.py`.

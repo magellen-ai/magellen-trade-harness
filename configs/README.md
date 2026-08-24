@@ -4,7 +4,7 @@
 |------|---------|
 | `harnesses/<id>/` | Thin tool binding: `harness.yaml` (`skill_dirs`, `env_from`, `process_env`, `materialize`, `launch`, default wake actions) + template files referenced by `materialize` |
 | `profiles/<id>/` | Experiment pack (`profile.yaml` → harness; `config.yaml`; `skeleton/` e.g. `CLAUDE.md` / `AGENTS.md`) |
-| `schedules/<id>/` | Schedule strategy packs applied into `instances/*/schedule/rules.d/base/` |
+| `schedules/<id>/` | Schedule strategy packs applied into `instances/*/schedule/rules.d/base/` (`default`, `pi-demo`, …) |
 | `default.yaml` | ClawStreet CLI trade defaults (dry-run, reasoning length) |
 
 Harnesses do **not** share a settings schema. The framework only:
