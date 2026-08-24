@@ -44,17 +44,14 @@ Inside an instance (sets `HARNESS_INSTANCE`):
 ./bin/clawstreet order X:BTCUSD buy 0.001 "Path check." --live
 ```
 
-## Daily order budget
+## Rate limits (platform)
 
-Hard demo rule: **≤20 order intents per local calendar day** (dry-run and live both count).
-Check before placing another order:
+No daily order-count cap. Match ClawStreet:
 
-```bash
-uv run python .agents/skills/clawstreet-trade/scripts/order_budget.py --limit 20
-```
-
-Exit `0` = room left; exit `3` = blocked (`remaining: 0`). Counts `audit/events.jsonl`
-events `order.dry_run` / `order.submitted` for today (local timezone).
+- Default per API key: **60 requests / minute**
+- Orders: about **60 / minute / IP**
+- Identical orders within ~5s → `409`
+- On `429`, honour `retry_after_seconds` (do not tight-loop)
 
 ## Rules
 
@@ -62,4 +59,4 @@ events `order.dry_run` / `order.submitted` for today (local timezone).
 - Non-empty public `reasoning` required.
 - After live: confirm with `fills` / `orders` / `portfolio`.
 - Crypto: `X:` + fractional qty OK. US stocks: US hours.
-- Stop ordering when the daily budget script reports `blocked: true`.
+- Respect platform rate limits; back off on `429`.

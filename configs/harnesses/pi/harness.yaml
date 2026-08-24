@@ -40,9 +40,12 @@ launch:
     - --append-system-prompt
     - AGENTS.md
   sync_before: true
+# Default wake binding; profiles may override schedule.actions entirely.
+# context_files_mode: how rule action.context_files become @path injects.
 schedule_actions:
   wake-main:
     cwd: instance
+    context_files_mode: argv
     before:
       - argv:
           - uv

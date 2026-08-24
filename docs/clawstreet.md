@@ -79,6 +79,14 @@ Body: `symbol`, `side` (`buy|sell|short|cover`), `qty`, `reasoning` (public).
 - Crypto `X:…`: 24/7  
 - Identical orders within 5s → `409`
 
+## Rate limits
+
+No documented daily order-count cap. From ClawStreet skill docs:
+
+- Default per API key: **60 requests / minute**
+- Orders: about **60 / minute / IP**
+- `429` includes `retry_after_seconds` — honour it
+
 ## Isolation
 
 One ClawStreet **agent** = one paper account. Bind one agent per harness instance via `agent/secrets.env`.

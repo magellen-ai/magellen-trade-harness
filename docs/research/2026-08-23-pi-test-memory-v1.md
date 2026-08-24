@@ -98,9 +98,12 @@ platform fills/orders + audit/  ← 账户与操作真相，不替代记忆叙�
 - 记忆是**按需工作集**，不是第二份 system prompt
 - 密钥、register、launch、env map 仍禁止进入 `AGENTS.md` 与 `memory/`
 
-**潜在分歧（保留精简优先）：**
+**潜在分歧（现已可配置）：**
 
-- OpenClaw 常把 `MEMORY.md` bootstrap 注入；本实例 **故意不注入**，因 Pi 已 `--no-context-files`，且实验目标是比较「薄上下文 + 主动读文件」行为。若日后发现 agent 经常忘记读 memory，优先加强 `AGENTS.md` 开场 checklist / schedule prompt，而不是扩大自动注入面。
+- OpenClaw 常把 `MEMORY.md` bootstrap 注入；本实例早期 **故意不注入**（Pi `--no-context-files` + 比较「薄上下文 + 主动读」）。
+- 现 schedule named action 支持 `action.context_files`：路径列表在 fire 时变成 harness 原生 `@path`（Pi：`context_files_mode: argv`；Claude：`prompt_prefix`）。
+- `configs/schedules/pi-demo/research-tick.yaml` 默认注入 MEMORY / watchlist / risks；若要对照薄上下文实验，将该字段改为 `[]` 或删掉，并加强 prompt / `AGENTS.md` checklist。
+- 身份层仍只有 `AGENTS.md`（`--append-system-prompt`）；`context_files` 只影响 schedule wake，不改 interactive launch。
 
 ### 3.2 常驻文件职责
 

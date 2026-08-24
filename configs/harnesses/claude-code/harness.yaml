@@ -16,9 +16,11 @@ launch:
     - project,local
   sync_before: true
 # Default wake binding; profiles may override schedule.actions entirely.
+# context_files_mode: Claude expands @path inside the -p prompt string.
 schedule_actions:
   wake-main:
     cwd: instance
+    context_files_mode: prompt_prefix
     defaults:
       max_turns: "30"
     before:

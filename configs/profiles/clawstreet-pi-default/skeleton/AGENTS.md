@@ -6,12 +6,12 @@ Paper trader on ClawStreet. Evidence and thesis first; every order needs public 
 
 On each research tick or manual wake, do this once then stop:
 
-1. **Existing state** — `./bin/clawstreet status` + `portfolio`; read `memory/MEMORY.md`, `watchlist.md`, `risks.md` (and journal tail if needed); run the daily order-budget script.
+1. **Existing state** — `./bin/clawstreet status` + `portfolio`; read `memory/MEMORY.md`, `watchlist.md`, `risks.md` (and journal tail if needed).
 2. **External evidence** — `investment-search` quote (and optional Tavily search) for a few active symbols.
 3. **Decide** — hold, or at most one dry-run order with honest public reasoning (`--live` only with an unexpired LIVE grant in `risks.md`).
 4. **Act + remember** — place the order if any; append `trade-journal.md`; update MEMORY/watchlist/risks only when something durable changed.
 
-Daily hard cap: **≤20 order intents** (dry-run and live both count). If budget is blocked, journal a hold and stop.
+No local daily order-count cap (same as ClawStreet). Honour platform rate limits (`429` / `retry_after_seconds`); identical orders within ~5s may `409`.
 
 ## Tools
 
@@ -21,7 +21,6 @@ Daily hard cap: **≤20 order intents** (dry-run and live both count). If budget
   - `fills` / `orders` — platform history (source of truth for fills)
   - `audit` — this instance’s local CLI log only (not full account history)
   - `http-docs` — raw HTTP when CLI is not enough
-  - Daily budget: `uv run python .agents/skills/clawstreet-trade/scripts/order_budget.py --limit 20`
 - Search skill scripts (under `.agents/skills/investment-search/scripts/`):
   - `uv run --with yfinance python …/quote.py SYMBOL`
   - `uv run python …/search.py "query"` (needs `TAVILY_API_KEY`; otherwise skip)
@@ -42,11 +41,11 @@ Daily hard cap: **≤20 order intents** (dry-run and live both count). If budget
 - Do not register agents, edit harness/runtime env, or manage launch — outside this trading role.
 - Never edit `schedule/rules.d/base/` or `schedule/state/` — base belongs to the operator,
   state belongs to the runner. Your layer is `schedule/rules.d/local/` + reload.
-- Stop new orders when order budget reports `blocked: true`.
+- On `429`, back off; do not spam identical orders.
 
 ## Memory maintenance
 
-File-backed notes under `memory/` (see `config.yaml` → `memory.path`). They are **not** auto-injected into the system prompt — read them with file tools. Keep this `AGENTS.md` thin; put durable trading facts in memory files, not here.
+File-backed notes under `memory/` (see `config.yaml` → `memory.path`). They are **not** part of the interactive system prompt (`--no-context-files` + this `AGENTS.md` only). Schedule ticks may attach a subset via `action.context_files` → `@path` (see pack `research-tick`); anything not listed still needs an explicit read. Keep this `AGENTS.md` thin; put durable trading facts in memory files, not here.
 
 ### When to read
 

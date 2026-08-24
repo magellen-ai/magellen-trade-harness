@@ -32,8 +32,18 @@ def cmd_instance_init(args: argparse.Namespace) -> None:
     print(f"INSTANCE_OK {path}")
     print(f"profile={cfg.get('profile')} harness={cfg.get('harness')}")
     print(f"skills={cfg.get('skills')}")
-    print("Bind agent: uv run clawstreet register --instance", args.name)
-    print("Or paste key into", path / "agent" / "secrets.env")
+    competition = str(cfg.get("competition") or "")
+    if competition == "clawstreet":
+        print("Bind agent: uv run clawstreet register --instance", args.name)
+        print("Or paste key into", path / "agent" / "secrets.env")
+    elif competition == "paper_ashare":
+        print(
+            "Paper account: uv run paper-ashare --account default accounts init "
+            f"(cwd or HARNESS_INSTANCE={path})"
+        )
+        print("Keys (HITHINK/TAVILY/AIPROXY) come from repo .env via pi-env; optional agent/secrets.env")
+    else:
+        print("Optional secrets:", path / "agent" / "secrets.env")
     print("Settings: uv run harness instance sync-settings", args.name)
     print("Then: uv run harness instance launch --show-cmd", args.name)
 
@@ -56,7 +66,14 @@ def cmd_instance_sync_skills(args: argparse.Namespace) -> None:
         selected = instance_mod.sync_instance_skills(args.name)
     except Exception as e:
         _die(e)
+    cfg = instance_mod.load_yaml(instance_mod.instances_root() / args.name / "config.yaml")
+    npx = instance_mod.normalize_skills_npx(cfg.get("skills_npx"))
     print(f"SYNC_OK skills={selected}")
+    if npx:
+        print(
+            "skills_npx="
+            + ", ".join(f"{e['package']}@{e['skill']}" for e in npx)
+        )
 
 
 def cmd_instance_sync_settings(args: argparse.Namespace) -> None:
@@ -69,6 +86,12 @@ def cmd_instance_sync_settings(args: argparse.Namespace) -> None:
     print(f"RUNTIME_OK files={[str(p) for p in written]}")
     print(f"dotenv={instance_mod.repo_root() / '.env'}")
     print(f"env_from={cfg.get('env_from')} env_keys={sorted(env.keys())}")
+    npx = instance_mod.normalize_skills_npx(cfg.get("skills_npx"))
+    if npx:
+        print(
+            "skills_npx="
+            + ", ".join(f"{e['package']}@{e['skill']}" for e in npx)
+        )
     if missing:
         print(f"unresolved=$refs missing in .env/process: {missing}")
 
@@ -82,7 +105,11 @@ def cmd_instance_sync_bin(args: argparse.Namespace) -> None:
 
 
 def cmd_skills_list(_args: argparse.Namespace) -> None:
-    print("\n".join(instance_mod.list_available_skills()) or "(no skills/ entries)")
+    local = instance_mod.list_available_skills()
+    print("local skills/:")
+    print("\n".join(f"  {s}" for s in local) or "  (none)")
+    print("npx skills (declare via profile skills_npx; installed under ~/.agents/skills):")
+    print("  e.g. package=HiThink-Tech/Financial-API skill=hithink-finance")
 
 
 def cmd_profiles_list(_args: argparse.Namespace) -> None:

@@ -140,6 +140,136 @@ def list_available_skills() -> list[str]:
     )
 
 
+def normalize_skills_npx(raw: Any) -> list[dict[str, Any]]:
+    """Normalize profile ``skills_npx`` entries.
+
+    Accepted forms::
+
+        skills_npx:
+          - package: HiThink-Tech/Financial-API
+            skill: hithink-finance
+          - HiThink-Tech/Financial-API@hithink-finance
+    """
+    if not raw:
+        return []
+    if not isinstance(raw, list):
+        raise ValueError("skills_npx must be a list")
+    out: list[dict[str, Any]] = []
+    for item in raw:
+        if isinstance(item, str):
+            if "@" not in item:
+                raise ValueError(
+                    f"skills_npx string must be package@skill, got {item!r}"
+                )
+            package, skill = item.split("@", 1)
+            package, skill = package.strip(), skill.strip()
+            if not package or not skill:
+                raise ValueError(f"invalid skills_npx entry: {item!r}")
+            out.append({"package": package, "skill": skill})
+            continue
+        if not isinstance(item, dict):
+            raise ValueError(f"skills_npx entry must be str or mapping, got {type(item)}")
+        package = str(item.get("package") or item.get("source") or "").strip()
+        skill = str(item.get("skill") or "").strip()
+        if not package or not skill:
+            raise ValueError(
+                "skills_npx entries need package (or source) and skill "
+                f"(got {item!r})"
+            )
+        # Instance-scoped only — never install with npx -g.
+        out.append({"package": package, "skill": skill})
+    return out
+
+
+def npx_skill_names(cfg: dict[str, Any]) -> list[str]:
+    return [e["skill"] for e in normalize_skills_npx(cfg.get("skills_npx"))]
+
+
+def skill_label_list(cfg: dict[str, Any]) -> list[str]:
+    """Local skills/ names + npx skill names (for templates / listing)."""
+    names = [str(s) for s in (cfg.get("skills") or [])]
+    for name in npx_skill_names(cfg):
+        if name not in names:
+            names.append(name)
+    return names
+
+
+def _run_npx_skills(
+    args: list[str],
+    *,
+    cwd: Path,
+    timeout: int = 300,
+) -> subprocess.CompletedProcess[str]:
+    cmd = ["npx", "--yes", "skills", *args]
+    return subprocess.run(
+        cmd,
+        cwd=str(cwd),
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        check=False,
+    )
+
+
+def ensure_npx_skills(instance_dir: Path, entries: list[dict[str, Any]]) -> list[str]:
+    """Install/refresh declared npx skills **inside the instance** (no ``-g``).
+
+    Project-scope ``npx skills add`` writes into the instance's hidden
+    ``.agents/skills/`` (plus ``skills-lock.json``). Never touches user-global
+    skill dirs.
+    """
+    if not entries:
+        return []
+
+    instance_dir = Path(instance_dir)
+    instance_dir.mkdir(parents=True, exist_ok=True)
+
+    upd = _run_npx_skills(["update", "-p", "-y"], cwd=instance_dir)
+    if upd.returncode != 0:
+        sys.stderr.write(
+            f"npx skills update -p warning (exit {upd.returncode}): "
+            f"{(upd.stderr or upd.stdout or '').strip()[:500]}\n"
+        )
+
+    installed: list[str] = []
+    for entry in entries:
+        package = entry["package"]
+        skill = entry["skill"]
+        # No -g: project install → instance/.agents/skills/<skill>
+        args = ["add", package, "--skill", skill, "--yes"]
+        proc = _run_npx_skills(args, cwd=instance_dir)
+        if proc.returncode != 0:
+            detail = (proc.stderr or proc.stdout or "").strip()
+            raise RuntimeError(
+                f"npx skills add {package} --skill {skill} (cwd={instance_dir}) failed "
+                f"(exit {proc.returncode}): {detail[:800]}"
+            )
+        dest = instance_dir / ".agents" / "skills" / skill
+        if not (dest / "SKILL.md").is_file():
+            raise FileNotFoundError(
+                f"npx reported success but {dest}/SKILL.md missing "
+                f"(expected project install under instance .agents/skills/)"
+            )
+        installed.append(skill)
+    return installed
+
+
+def resolve_instance_npx_skill_path(instance_dir: Path, skill_name: str) -> Path:
+    """Locate an npx skill already installed under the instance."""
+    candidates = [
+        Path(instance_dir) / ".agents" / "skills" / skill_name,
+        Path(instance_dir) / ".pi" / "skills" / skill_name,
+        Path(instance_dir) / ".claude" / "skills" / skill_name,
+    ]
+    for path in candidates:
+        if (path / "SKILL.md").is_file():
+            return path.resolve()
+    raise FileNotFoundError(
+        f"npx skill {skill_name!r} not found under {instance_dir}/.agents/skills. "
+        "Run sync-skills / sync-settings (project-scoped npx, no -g)."
+    )
+
+
 def list_harnesses() -> list[str]:
     root = harnesses_root()
     if not root.is_dir():
@@ -247,6 +377,9 @@ def build_instance_config(
     if unknown:
         raise FileNotFoundError(f"unknown skills {unknown}; available={available}")
 
+    # Validate npx skill declarations (do not require them under repo skills/).
+    cfg["skills_npx"] = normalize_skills_npx(cfg.get("skills_npx"))
+
     cfg["name"] = name
     cfg["profile"] = profile_id
     cfg["harness"] = profile["harness"]
@@ -318,10 +451,9 @@ def copy_skeleton(
     return written
 
 
-def _link_skill(skill_name: str, dest_dir: Path) -> None:
-    src = skills_root() / skill_name
+def _link_skill_from(src: Path, dest_dir: Path, skill_name: str) -> None:
     if not (src / "SKILL.md").exists():
-        raise FileNotFoundError(f"skill not found in skills/: {skill_name}")
+        raise FileNotFoundError(f"skill missing SKILL.md: {src}")
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest = dest_dir / skill_name
     if dest.is_symlink() or dest.exists():
@@ -330,6 +462,25 @@ def _link_skill(skill_name: str, dest_dir: Path) -> None:
         else:
             shutil.rmtree(dest)
     dest.symlink_to(src.resolve(), target_is_directory=True)
+
+
+def _link_skill(skill_name: str, dest_dir: Path) -> None:
+    src = skills_root() / skill_name
+    if not (src / "SKILL.md").exists():
+        raise FileNotFoundError(f"skill not found in skills/: {skill_name}")
+    _link_skill_from(src, dest_dir, skill_name)
+
+
+def _ensure_npx_skill_in_dir(
+    instance_dir: Path, skill_name: str, dest_dir: Path
+) -> None:
+    """Make sure skill_name is visible under dest_dir (already installed by npx)."""
+    src = resolve_instance_npx_skill_path(instance_dir, skill_name)
+    dest = dest_dir / skill_name
+    # npx already wrote into .agents/skills — same path, nothing to do.
+    if dest.resolve() == src.resolve():
+        return
+    _link_skill_from(src, dest_dir, skill_name)
 
 
 def _write_uv_wrapper(instance_dir: Path, script_name: str) -> Path:
@@ -457,7 +608,7 @@ def _template_vars(
         "instance_dir": str(instance_dir.resolve()),
         "profile": str(cfg.get("profile") or ""),
         "harness": str(cfg.get("harness") or ""),
-        "skills": ", ".join(cfg.get("skills") or []) or "(none)",
+        "skills": ", ".join(skill_label_list(cfg)) or "(none)",
         "repo_root": str(repo_root()),
         # Raw JSON object for templates like ``"env": {{env_json}}`` (not a string).
         "env_json": json.dumps(resolved_env, ensure_ascii=False, indent=2),
@@ -562,9 +713,12 @@ def sync_settings(instance_dir: Path, cfg: Optional[dict[str, Any]] = None) -> l
 
 
 def sync_instance_settings(name: str) -> list[Path]:
+    """Materialize templates and refresh skills (including ``skills_npx`` via npx)."""
     instance_dir = instances_root() / name
     if not instance_dir.is_dir():
         raise FileNotFoundError(f"instance not found: {instance_dir}")
+    # Keep instance skill_dirs current whenever settings are synced.
+    sync_instance_skills(name)
     return sync_runtime(instance_dir, load_yaml(instance_dir / "config.yaml"))
 
 
@@ -604,6 +758,8 @@ def launch_instance(
     launch = cfg.get("launch") or {}
     written: list[Path] = []
     if isinstance(launch, dict) and _launch_sync_before(launch):
+        # Refresh local + skills_npx (npx update/add) before materialize/launch.
+        sync_instance_skills(name)
         if cfg.get("materialize"):
             written = sync_runtime(instance_dir, cfg)
     cmd = launch_command(name, cfg)
@@ -631,16 +787,22 @@ def launch_instance(
 
 
 def sync_instance_skills(name: str) -> list[str]:
+    """Link repo ``skills/`` + install ``skills_npx`` into this instance only (no npx -g)."""
     instance_dir = instances_root() / name
     cfg = load_yaml(instance_dir / "config.yaml")
     selected = list(cfg.get("skills") or [])
+    npx_entries = normalize_skills_npx(cfg.get("skills_npx"))
+    if npx_entries:
+        ensure_npx_skills(instance_dir, npx_entries)
     dirs = list(cfg.get("skill_dirs") or [".claude/skills"])
     for rel in dirs:
         dest = instance_dir / rel
         dest.mkdir(parents=True, exist_ok=True)
         for skill in selected:
             _link_skill(skill, dest)
-    return selected
+        for entry in npx_entries:
+            _ensure_npx_skill_in_dir(instance_dir, entry["skill"], dest)
+    return skill_label_list(cfg)
 
 
 def init_instance(
@@ -673,7 +835,7 @@ def init_instance(
 
     vars = {
         "name": name,
-        "skills": ", ".join(selected) if selected else "(none)",
+        "skills": ", ".join(skill_label_list(cfg)) or "(none)",
         "profile": profile,
         "harness": str(cfg.get("harness") or ""),
     }

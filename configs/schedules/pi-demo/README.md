@@ -9,6 +9,9 @@ uv run harness schedule apply <instance> --pack pi-demo
 
 Ships `research-tick` **disabled** @ 4h. State (`schedule/state/`) is preserved across apply.
 
+`research-tick` sets `action.context_files` (MEMORY / watchlist / risks) → Pi injects
+`@path` argv after `-p`. Use `context_files: []` for a thin-context A/B.
+
 ## Manual trigger (primary test path)
 
 Force one wake regardless of interval:

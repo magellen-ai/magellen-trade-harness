@@ -4,3 +4,5 @@ require_reasoning: true
 min_reasoning_chars: 10
 request_timeout_seconds: 20
 local_audit: true
+paper_ashare_initial_cash: 1000000
+paper_ashare_slippage_bps: 5

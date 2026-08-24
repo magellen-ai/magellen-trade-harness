@@ -37,6 +37,18 @@ Rule schema (v1)::
       # prompt / prompt_file:    #   if template uses {prompt}
       timeout: 3600              # optional, seconds
       # max_turns: "30"          # optional extras → {max_turns} etc.
+      # context_files:           # optional; instance-relative paths → @path inject
+      #   - memory/MEMORY.md
+
+Named-action harness binding (``schedule.actions.<kind>``) may set
+``context_files_mode``:
+
+- ``argv`` (default): insert ``@path`` tokens after ``-p`` / ``--print`` in argv
+  (Pi-style CLI file args).
+- ``prompt_prefix``: prepend ``@path`` lines to ``{prompt}`` (Claude-style).
+
+Shell templates always use ``prompt_prefix`` when ``context_files`` is set.
+Missing files at fire time are skipped (logged); reload only warns.
 
 Placeholders in named-action templates: ``{prompt}`` ``{instance}``
 ``{timeout}`` ``{max_turns}`` ``{condition_output}`` (and any other string
@@ -72,6 +84,8 @@ DEFAULT_NAMED_ACTION_TIMEOUT = 3600
 DEFAULT_SCRIPT_TIMEOUT = 600
 CONDITION_OUTPUT_LIMIT = 8000  # chars of condition stdout injected into prompts
 CRON_LOOKBACK_CAP_MIN = 7 * 24 * 60  # max minutes scanned for missed cron fires
+CONTEXT_FILES_MODES = ("argv", "prompt_prefix")
+PRINT_FLAGS = ("-p", "--print")
 
 # Verbs the generated instance-facing ``bin/schedule`` wrapper may forward.
 AGENT_SAFE_VERBS = ("check", "reload", "status")
@@ -437,7 +451,142 @@ def _validate_action_def(action_def: Any, src: str, rid: str, issues: list[Issue
     if cwd not in ("instance", "repo"):
         issues.append(_err(src, rid, "action cwd must be 'instance' or 'repo'"))
         return False
+    mode = action_def.get("context_files_mode", "argv")
+    if mode not in CONTEXT_FILES_MODES:
+        issues.append(
+            _err(
+                src,
+                rid,
+                f"context_files_mode must be one of {CONTEXT_FILES_MODES}; got {mode!r}",
+            )
+        )
+        return False
     return True
+
+
+def _compile_context_files(
+    raw: dict[str, Any],
+    src: str,
+    rid: str,
+    instance_dir: Path,
+    issues: list[Issue],
+) -> Optional[list[str]]:
+    """Validate and normalize action.context_files (instance-relative paths)."""
+    if "context_files" not in raw:
+        return None
+    value = raw["context_files"]
+    if not isinstance(value, list):
+        issues.append(_err(src, rid, "action.context_files must be a list of paths"))
+        return None
+    root = instance_dir.resolve()
+    out: list[str] = []
+    seen: set[str] = set()
+    for i, item in enumerate(value):
+        if not isinstance(item, str) or not item.strip():
+            issues.append(_err(src, rid, f"action.context_files[{i}] must be a non-empty string"))
+            return None
+        rel = item.strip().replace("\\", "/")
+        if rel.startswith("/") or re.match(r"^[A-Za-z]:/", rel):
+            issues.append(_err(src, rid, f"action.context_files[{i}] must be relative: {item}"))
+            return None
+        parts = Path(rel).parts
+        if ".." in parts:
+            issues.append(_err(src, rid, f"action.context_files[{i}] must not contain '..': {item}"))
+            return None
+        if not parts or parts[0] == "":
+            issues.append(_err(src, rid, f"action.context_files[{i}] is empty"))
+            return None
+        candidate = (root / rel).resolve()
+        try:
+            candidate.relative_to(root)
+        except ValueError:
+            issues.append(
+                _err(src, rid, f"action.context_files[{i}] escapes instance dir: {item}")
+            )
+            return None
+        if rel in seen:
+            continue
+        seen.add(rel)
+        if not candidate.is_file():
+            issues.append(
+                _warn(src, rid, f"context_files not found yet (ok if created later): {rel}")
+            )
+        out.append(rel)
+    return out
+
+
+def _resolve_context_ats(
+    instance_dir: Path, paths: list[str]
+) -> tuple[list[str], list[str]]:
+    """Return (@path tokens for existing files, skipped relative paths)."""
+    root = instance_dir.resolve()
+    ats: list[str] = []
+    skipped: list[str] = []
+    for rel in paths:
+        candidate = (root / rel).resolve()
+        try:
+            candidate.relative_to(root)
+        except ValueError:
+            skipped.append(rel)
+            continue
+        if not candidate.is_file():
+            skipped.append(rel)
+            continue
+        ats.append("@" + rel.replace("\\", "/"))
+    return ats, skipped
+
+
+def _inject_context_ats_argv(argv: list[str], ats: list[str]) -> list[str]:
+    """Insert @path tokens after the first -p/--print flag (and its value if present).
+
+    Patterns handled:
+      [..., "-p", "{prompt}", ...]  → [..., "-p", @a, @b, "{prompt}", ...]
+      [..., "-p", ...] with no following value yet — inserts after -p
+    If no print flag, append ats before the last arg when that looks like the
+    prompt, else append at end.
+    """
+    if not ats:
+        return argv
+    for i, token in enumerate(argv):
+        if token in PRINT_FLAGS:
+            # Prefer inserting after the flag's value (usual: -p "{prompt}").
+            if i + 1 < len(argv):
+                insert_at = i + 1
+                return argv[:insert_at] + ats + argv[insert_at:]
+            return argv + ats
+    return argv + ats
+
+
+def _apply_context_files(
+    *,
+    prompt: str,
+    argv: Optional[list[str]],
+    action_def: dict[str, Any],
+    instance_dir: Path,
+    paths: list[str],
+    log_lines: list[str],
+) -> tuple[str, Optional[list[str]]]:
+    """Apply context_files via @path according to harness mode. Mutates delivery only."""
+    if not paths:
+        return prompt, argv
+    ats, skipped = _resolve_context_ats(instance_dir, paths)
+    if skipped:
+        log_lines.append(f"# context_files skipped (missing): {skipped}")
+    if not ats:
+        log_lines.append("# context_files: (none present)")
+        return prompt, argv
+
+    mode = action_def.get("context_files_mode", "argv")
+    if "shell" in action_def and "argv" not in action_def:
+        mode = "prompt_prefix"
+    if mode not in CONTEXT_FILES_MODES:
+        mode = "argv"
+
+    log_lines.append(f"# context_files: {ats} mode={mode}")
+    if mode == "prompt_prefix" or argv is None:
+        prefix = "\n".join(ats) + "\n\n"
+        return prefix + prompt, argv
+    return prompt, _inject_context_ats_argv(argv, ats)
 
 
 def _compile_action(
@@ -492,7 +641,7 @@ def _compile_action(
 
     placeholders = _template_placeholders(action_def)
     needs_prompt = "prompt" in placeholders
-    reserved = {"kind", "prompt", "prompt_file", "timeout", "run"}
+    reserved = {"kind", "prompt", "prompt_file", "timeout", "run", "context_files"}
     # Allow arbitrary string/int extras for placeholders (e.g. max_turns).
     for key, value in raw.items():
         if key in reserved:
@@ -507,6 +656,10 @@ def _compile_action(
         raw, src, rid, rule_file, instance_dir, issues, required=needs_prompt
     )
     if needs_prompt and prompt is None:
+        return None
+
+    context_files = _compile_context_files(raw, src, rid, instance_dir, issues)
+    if "context_files" in raw and context_files is None:
         return None
 
     timeout = raw.get("timeout", DEFAULT_NAMED_ACTION_TIMEOUT)
@@ -532,6 +685,8 @@ def _compile_action(
         out["prompt"] = prompt
     if prompt_file:
         out["prompt_file"] = prompt_file
+    if context_files:
+        out["context_files"] = context_files
     return out
 
 
@@ -897,6 +1052,21 @@ def run_configured_action(
     if prompt:
         # Nested placeholders inside {prompt} are not re-expanded by templates.
         prompt = prompt.replace("{condition_output}", condition_output)
+
+    context_paths = list(action.get("context_files") or [])
+    context_log: list[str] = []
+    argv_template: Optional[list[str]] = (
+        list(action_def["argv"]) if "argv" in action_def else None
+    )
+    prompt, argv_template = _apply_context_files(
+        prompt=prompt,
+        argv=argv_template,
+        action_def=action_def,
+        instance_dir=instance_dir,
+        paths=context_paths,
+        log_lines=context_log,
+    )
+
     vars: dict[str, str] = {
         "instance": instance_dir.name,
         "timeout": str(action["timeout"]),
@@ -912,6 +1082,8 @@ def run_configured_action(
     log_file.parent.mkdir(parents=True, exist_ok=True)
     with open(log_file, "w", encoding="utf-8") as log:
         log.write(f"# named-action {action['kind']} {_now().isoformat(timespec='seconds')}\n")
+        for line in context_log:
+            log.write(line + "\n")
 
     try:
         for i, hook in enumerate(action_def.get("before") or []):
@@ -936,8 +1108,8 @@ def run_configured_action(
                     log.write(f"# before[{i}] failed exit={code}\n")
                 return code
 
-        if "argv" in action_def:
-            argv = [_expand_placeholders(x, vars) for x in action_def["argv"]]
+        if argv_template is not None:
+            argv = [_expand_placeholders(x, vars) for x in argv_template]
             return _run_argv(argv, cwd, instance_dir, timeout, log_file)
         shell = _expand_placeholders(action_def["shell"], vars)
         code, output = _run_shell(shell, instance_dir, timeout, cwd=cwd)

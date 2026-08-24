@@ -1,10 +1,12 @@
 # magellen-trade-harness
 
-Harness runtime + competition adapters. Two CLIs:
+Harness runtime + competition / paper adapters. CLIs:
 
 | Command | Role |
 |---------|------|
-| `uv run clawstreet …` | ClawStreet trading (primary for agents) |
+| `uv run clawstreet …` | ClawStreet US/crypto paper trading |
+| `uv run paper-ashare …` | Local A-share paper accounts (multi `--account`) |
+| `uv run fuyao …` | Tonghuashun HiThink market data (read-only) |
 | `uv run harness …` | Instance / skills runtime |
 
 ## Setup
@@ -16,6 +18,11 @@ uv run harness profiles list
 uv run harness instance init demo --profile clawstreet-claude-default
 uv run clawstreet register --instance demo   # or paste key into instances/demo/agent/secrets.env
 uv run clawstreet status                     # set HARNESS_INSTANCE or use ./bin/clawstreet inside instance
+
+# A-share local paper on Pi (fuyao + paper-ashare + Tavily)
+uv run harness instance init ashare-pi-test --profile ashare-pi-paper
+uv run harness schedule apply ashare-pi-test --pack ashare-pi-demo
+# keys: HITHINK_FINANCE_API_KEY / TAVILY_API_KEY / AIPROXY_API_KEY in repo .env
 ```
 
 Secrets live in **`instances/<name>/agent/secrets.env`** (gitignored). Legacy fallback: `~/.config/magellen-trade-harness/secrets.env`.
@@ -29,6 +36,26 @@ uv run clawstreet status|portfolio|order|fills|orders|audit|register|http-docs
 - CLI handles secret load, `Idempotency-Key`, default dry-run.
 - **History source of truth:** `fills` / `orders` (platform).
 - **Raw HTTP:** `uv run clawstreet http-docs` → `docs/clawstreet.md`.
+
+## paper-ashare (local A-share paper)
+
+```bash
+uv run paper-ashare --account demo accounts init --cash 1000000
+uv run paper-ashare --account demo status|portfolio|order|fills|orders
+uv run paper-ashare quote 600519.SH
+```
+
+- Default dry-run; `--live` writes SQLite under `instances/<name>/paper_ashare/` (or `~/.config/.../paper_ashare/`).
+- Docs: `uv run paper-ashare http-docs` → `docs/paper_ashare.md`.
+
+## fuyao (HiThink / Tonghuashun data)
+
+```bash
+# put HITHINK_FINANCE_API_KEY in instances/<name>/agent/secrets.env
+uv run fuyao ping|quote|search|bars|calendar|http-docs
+```
+
+Key: https://fuyao.aicubes.cn/admin/ · Docs: `docs/fuyao.md`.
 
 ## harness
 
@@ -63,6 +90,6 @@ uv run harness schedule tick <name> [--dry-run] [--rule ID]  # runner; put tick 
 uv run harness schedule packs   # includes `default` and `pi-demo`
 ```
 
-PI demo pack (`configs/schedules/pi-demo/`): research loop prompt (memory + investment-search + dry-run order + daily ≤20). Ships disabled @ 4h. Prefer manual `tick --rule research-tick` for most tests; use a local 5m shadow only for a one-shot timer smoke.
+PI demo pack (`configs/schedules/pi-demo/`): research loop prompt (memory + investment-search + dry-run order; platform rate limits only, no local daily cap). Ships disabled @ 4h. Prefer manual `tick --rule research-tick` for most tests; use a local 5m shadow only for a one-shot timer smoke.
 
 Design notes in `AGENTS.md` ("Schedule"). Rule schema is documented at the top of `src/runtime/schedule.py`.
