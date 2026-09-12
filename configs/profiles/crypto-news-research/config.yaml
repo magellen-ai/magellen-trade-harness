@@ -1,0 +1,14 @@
+agent: crypto-news-grok
+tools:
+  - cli: okx
+    enable: [status, balance, positions, ticker, orders, fills, algos, http-docs]
+  - cli: schedule
+    enable: [check, reload, status, create, list, cancel]
+skills: []
+schedule:
+  actions:
+    wake-main:
+      cwd: instance
+      context_files_mode: prompt_prefix
+      before:
+        - argv: [uv, run, harness, instance, sync-settings, '{instance}']

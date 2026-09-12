@@ -1,0 +1,5 @@
+harness: grok-build
+profile: ashare-grok-fundamental
+model:
+  provider: magellen
+  name: grok-4.6

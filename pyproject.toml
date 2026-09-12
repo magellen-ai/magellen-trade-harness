@@ -14,6 +14,7 @@ clawstreet = "competitions.clawstreet.cli:main"
 harness = "runtime.cli:main"
 fuyao = "marketdata.fuyao.cli:main"
 paper-ashare = "brokers.paper_ashare.cli:main"
+okx = "brokers.okx.cli:main"
 
 [build-system]
 requires = ["setuptools>=68"]

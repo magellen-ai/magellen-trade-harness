@@ -1,4 +1,4 @@
-# Always-on crypto risk / reconcile tick (reduce-only).
+# Always-on crypto risk tick（默认关闭；在 local/ 中 shadow 后 reload）。
 id: risk-tick
 enabled: false
 trigger:
@@ -12,12 +12,4 @@ action:
     - memory/working_set.md
     - memory/risks.md
   prompt: |
-    Scheduled crypto RISK tick. REDUCE-ONLY. Follow once, then stop.
-
-    1) Compare attached world_state vs `./bin/clawstreet portfolio` and `./bin/clawstreet exposure --json`.
-    2) Check soft-limit usage and thesis invalidation files under `memory/thesis/`.
-    3) If a position drift appears that is NOT this book (account other / historical): ALERT in journal only — do not trade it.
-    4) You may only place sell/cover (reduce) dry-run orders for this book's `X:`* risk; no new buys/shorts this tick.
-       Only `--live` with an unexpired LIVE grant scoped to reduce.
-    5) Append journal entry (action/signals/reasoning/invalidation/size_hint) even if hold.
-    6) Stop.
+    完成一轮加密风险核对后停止。比较附带状态与账户、检查 soft limit 和 thesis；本轮只能对本书做 reduce-only dry-run，发现 other / historical 漂移只记录告警。

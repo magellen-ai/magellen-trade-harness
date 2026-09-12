@@ -1,0 +1,19 @@
+skills:
+- npx:
+    package: mcncarl/yichen-skills
+    skill: yichen-unified-search
+- npx:
+    package: anysearch-ai/anysearch-skill
+    skill: anysearch
+env:
+  HITHINK_FINANCE_API_KEY: $HITHINK_FINANCE_API_KEY
+  ANYSEARCH_API_KEY: $ANYSEARCH_API_KEY
+  TAVILY_API_KEY: $TAVILY_API_KEY
+tools:
+- cli: fuyao
+- cli: schedule
+  enable:
+  - check
+  - reload
+  - status
+agent: ashare-grok-fundamental

@@ -6,6 +6,7 @@ import argparse
 import sys
 from typing import Optional
 
+from . import config as config_mod
 from . import instance as instance_mod
 from . import schedule as schedule_mod
 
@@ -20,11 +21,13 @@ def cmd_instance_init(args: argparse.Namespace) -> None:
     if skills is not None:
         skills = [s.strip() for s in skills if s.strip()]
     try:
+        profile = instance_mod.DEFAULT_PROFILE
         path = instance_mod.init_instance(
             args.name,
-            profile=args.profile,
+            profile=profile,
             skills=skills,
             force=args.force,
+            agent=getattr(args, "agent", None),
         )
     except (OSError, ValueError, RuntimeError, FileNotFoundError, FileExistsError) as e:
         _die(e)
@@ -43,7 +46,10 @@ def cmd_instance_init(args: argparse.Namespace) -> None:
             "Paper account: uv run paper-ashare --account default accounts init "
             f"(cwd or HARNESS_INSTANCE={path})"
         )
-        print("Keys (HITHINK/TAVILY/AIPROXY) come from repo .env via config env; optional agent/secrets.env")
+        print(
+            "Keys (HITHINK/TAVILY/AIPROXY) come from repo .env via config env; "
+            "optional agent/secrets.env"
+        )
     else:
         print("Optional secrets:", path / "agent" / "secrets.env")
     print("Settings: uv run harness instance sync-settings", args.name)
@@ -120,6 +126,25 @@ def cmd_profiles_list(_args: argparse.Namespace) -> None:
 
 def cmd_harnesses_list(_args: argparse.Namespace) -> None:
     print("\n".join(instance_mod.list_harnesses()) or "(no configs/harnesses/)")
+
+
+def cmd_agents_list(_args: argparse.Namespace) -> None:
+    print("\n".join(instance_mod.list_agents()) or "(no configs/agents/)")
+
+def cmd_tools_list(_args: argparse.Namespace) -> None:
+    from .tools import list_clis
+    print("\n".join(list_clis()) or "(no registered CLI tools)")
+
+
+def cmd_config_check(_args: argparse.Namespace) -> None:
+    issues = config_mod.validate_repository(instance_mod.repo_root())
+    errors = [issue for issue in issues if issue.level == "error"]
+    for issue in issues:
+        print(issue.render())
+    if errors:
+        print(f"CONFIG_FAIL errors={len(errors)} warnings={len(issues) - len(errors)}")
+        sys.exit(1)
+    print(f"CONFIG_OK files_checked warnings={len(issues)}")
 
 
 # --- schedule -------------------------------------------------------------
@@ -208,6 +233,27 @@ def cmd_schedule_packs(_args: argparse.Namespace) -> None:
         print(name)
 
 
+def cmd_schedule_create(args: argparse.Namespace) -> None:
+    instance_dir = _schedule_instance(args)
+    try:
+        path = schedule_mod.create_agent_rule(
+            instance_dir, args.rule_id, every=args.every, prompt=args.prompt
+        )
+    except Exception as e:
+        _die(e)
+    print(f"CREATE_OK rule={args.rule_id} path={path}")
+
+def cmd_schedule_list(args: argparse.Namespace) -> None:
+    print("\n".join(schedule_mod.list_agent_rules(_schedule_instance(args))) or "(none)")
+
+def cmd_schedule_cancel(args: argparse.Namespace) -> None:
+    try:
+        schedule_mod.cancel_agent_rule(_schedule_instance(args), args.rule_id)
+    except Exception as e:
+        _die(e)
+    print(f"CANCEL_OK rule={args.rule_id}")
+
+
 def register_commands(sub: argparse._SubParsersAction) -> None:
     p_skills = sub.add_parser("skills", help="Skill library helpers")
     skills_sub = p_skills.add_subparsers(dest="skills_command")
@@ -220,10 +266,9 @@ def register_commands(sub: argparse._SubParsersAction) -> None:
     p_init = inst_sub.add_parser("init", help="Create gitignored instance workdir from a profile")
     p_init.add_argument("name")
     p_init.add_argument(
-        "--profile",
-        default=instance_mod.DEFAULT_PROFILE,
-        help=f"configs/profiles/<id> (default: {instance_mod.DEFAULT_PROFILE})",
+        "--agent", required=True, help="Agent assembly under configs/agents/"
     )
+    # Agent config selects its profile/workspace and harness.
     p_init.add_argument(
         "--skills",
         help="Comma-separated skill names; default = profile config.yaml skills",
@@ -258,14 +303,17 @@ def register_commands(sub: argparse._SubParsersAction) -> None:
 
     p_sync_settings = inst_sub.add_parser(
         "sync-settings",
-        help="Materialize harness templates + resolve config env (process_env applied at launch/tick)",
+        help=(
+            "Materialize harness templates + resolve config env "
+            "(process_env applied at launch/tick)"
+        ),
     )
     p_sync_settings.add_argument("name")
     p_sync_settings.set_defaults(func=cmd_instance_sync_settings)
 
     p_sync_bin = inst_sub.add_parser(
         "sync-bin",
-        help="Regenerate instance bin/ from config bin: + refresh agent context (Tools/Rules)",
+        help="Regenerate instance bin/ and refresh its compact agent context",
     )
     p_sync_bin.add_argument("name")
     p_sync_bin.set_defaults(func=cmd_instance_sync_bin)
@@ -279,6 +327,23 @@ def register_commands(sub: argparse._SubParsersAction) -> None:
     harnesses_sub = p_harnesses.add_subparsers(dest="harnesses_command")
     p_harnesses_list = harnesses_sub.add_parser("list", help="List available harnesses")
     p_harnesses_list.set_defaults(func=cmd_harnesses_list)
+
+    p_agents = sub.add_parser("agents", help="Agent assemblies under configs/agents/")
+    agents_sub = p_agents.add_subparsers(dest="agents_command")
+    p_agents_list = agents_sub.add_parser("list", help="List available agents")
+    p_agents_list.set_defaults(func=cmd_agents_list)
+
+    p_tools = sub.add_parser("tools", help="Registered CLI capabilities")
+    tools_sub = p_tools.add_subparsers(dest="tools_command")
+    p_tools_list = tools_sub.add_parser("list", help="List registered CLI tools")
+    p_tools_list.set_defaults(func=cmd_tools_list)
+
+    p_config = sub.add_parser("config", help="Validate declarative repository configuration")
+    config_sub = p_config.add_subparsers(dest="config_command")
+    p_config_check = config_sub.add_parser(
+        "check", help="Validate harnesses, profiles, agents and providers"
+    )
+    p_config_check.set_defaults(func=cmd_config_check)
 
     p_sched = sub.add_parser("schedule", help="Instance schedule engine")
     sched_sub = p_sched.add_subparsers(dest="schedule_command")
@@ -301,6 +366,17 @@ def register_commands(sub: argparse._SubParsersAction) -> None:
     _sched_parser("status", "Show active snapshot, drift, and per-rule state").set_defaults(
         func=cmd_schedule_status
     )
+
+    p_create = _sched_parser("create", "Create an Agent-owned local interval wake rule")
+    p_create.add_argument("rule_id")
+    p_create.add_argument("--every", required=True, help="Interval such as 1h or 30m")
+    p_create.add_argument("--prompt", required=True)
+    p_create.set_defaults(func=cmd_schedule_create)
+    p_list = _sched_parser("list", "List Agent-owned local wake rules")
+    p_list.set_defaults(func=cmd_schedule_list)
+    p_cancel = _sched_parser("cancel", "Cancel an Agent-owned local wake rule")
+    p_cancel.add_argument("rule_id")
+    p_cancel.set_defaults(func=cmd_schedule_cancel)
 
     p_apply = _sched_parser(
         "apply",

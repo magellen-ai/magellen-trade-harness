@@ -1,0 +1,50 @@
+skills: []
+trade:
+  default_dry_run: true
+  book_tag: okx-ma
+  quote_sz_usdt: 25
+  per_order_max_usdt: 50
+  symbol: BTC-USDT
+env:
+  OKX_APIKEY: $OKX_APIKEY
+  OKX_API_KEY: $OKX_APIKEY
+  OKX_API_SECRET: $OKX_API_SECRET
+  OKX_PASSPHRASE: $OKX_PASSPHRASE
+  OKX_SIMULATED: $OKX_SIMULATED
+  OKX_HTTP_PROXY: $OKX_HTTP_PROXY
+launch:
+  argv:
+  - ./bin/grok-exec
+  - -m
+  - grok-4.5
+  - --always-approve
+schedule:
+  actions:
+    wake-main:
+      cwd: instance
+      context_files_mode: prompt_prefix
+      before:
+      - argv:
+        - uv
+        - run
+        - harness
+        - instance
+        - sync-settings
+        - '{instance}'
+      argv:
+      - ./bin/grok-exec
+      - -m
+      - grok-4.5
+      - -p
+      - '{prompt}'
+      - --always-approve
+      - --output-format
+      - plain
+tools:
+- cli: okx
+- cli: schedule
+  enable:
+  - check
+  - reload
+  - status
+agent: okx-grok-ma

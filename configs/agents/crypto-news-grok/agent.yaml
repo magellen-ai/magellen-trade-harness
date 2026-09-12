@@ -1,0 +1,3 @@
+# Grok Build OAuth runtime. Model selection is provided by the host membership.
+harness: grok-build
+profile: crypto-news-research

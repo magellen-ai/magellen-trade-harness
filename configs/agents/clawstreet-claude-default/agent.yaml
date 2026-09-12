@@ -1,0 +1,5 @@
+harness: claude-code
+profile: clawstreet-claude-default
+model:
+  provider: magellen
+  name: claude

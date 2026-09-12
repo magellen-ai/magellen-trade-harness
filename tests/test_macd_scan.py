@@ -10,8 +10,10 @@ from pathlib import Path
 def _load_macd():
     path = (
         Path(__file__).resolve().parents[1]
-        / "skills"
-        / "investment-search"
+        / "configs"
+        / "profiles"
+        / "clawstreet-pi-default"
+        / "skeleton"
         / "scripts"
         / "macd_scan.py"
     )

@@ -1,4 +1,4 @@
-"""Compose instance agent context (Tools/Rules) from config ``bin:`` entries."""
+"""Compose the small generated tool index in an instance context."""
 
 from __future__ import annotations
 
@@ -6,12 +6,12 @@ import argparse
 import re
 from typing import Any, Callable, Optional
 
-# Short rules appended to every trading context file.
+# Short defaults for contexts whose profile does not define its own rules.
 COMMON_RULES_MD = """## Rules
 
-- Prefer dry-run until you intentionally `--live`.
-- Reasoning must be non-empty and honest (thesis or explicit path-check).
-- Schedule rule edits: `schedule/rules.d/local/`, then `./bin/schedule reload`.
+- Keep secrets out of output and logs.
+- Trading commands default to dry-run; use `--live` only when the profile allows it.
+- Every order needs honest public reasoning.
 """
 
 # Synthetic schedule agent surface (not a standalone uv script).
@@ -19,6 +19,9 @@ _SCHEDULE_HELPS: dict[str, str] = {
     "check": "Validate schedule/rules.d without activating",
     "reload": "Validate then atomically activate rules into state/active.json",
     "status": "Show active snapshot, drift, and per-rule state",
+    "create": "Create an Agent-owned local interval wake rule",
+    "list": "List Agent-owned local wake rules",
+    "cancel": "Cancel an Agent-owned local wake rule",
 }
 
 
@@ -63,6 +66,13 @@ def normalize_bin(cfg: dict[str, Any]) -> dict[str, dict[str, Any]]:
         out: dict[str, dict[str, Any]] = {}
         for key, value in raw.items():
             name = str(key)
+            if (
+                name in {".", ".."}
+                or re.fullmatch(r"[A-Za-z0-9_.-]+", name) is None
+            ):
+                raise ValueError(
+                    f"bin name {name!r} must contain only letters, digits, ., _ or -"
+                )
             if value is None:
                 entry: dict[str, Any] = {}
             elif isinstance(value, dict):
@@ -79,6 +89,13 @@ def normalize_bin(cfg: dict[str, Any]) -> dict[str, dict[str, Any]]:
         name = str(w)
         if name == "harness":
             continue
+        if (
+            name in {".", ".."}
+            or re.fullmatch(r"[A-Za-z0-9_.-]+", name) is None
+        ):
+            raise ValueError(
+                f"wrapper name {name!r} must contain only letters, digits, ., _ or -"
+            )
         out[name] = {"enable": None}
     expose = cfg.get("expose") or {}
     if isinstance(expose, dict) and expose.get("schedule"):
@@ -152,6 +169,13 @@ def tool_command_helps(tool: str) -> dict[str, str]:
     """All top-level commands for a bin tool name."""
     if tool == "schedule" or tool.startswith("schedule"):
         return dict(_SCHEDULE_HELPS)
+    try:
+        from .tools import get_cli
+        registered = get_cli(tool).command_helps()
+        if registered:
+            return registered
+    except (KeyError, ImportError):
+        pass
     parser = _load_parser(tool)
     if parser is None:
         return {}
@@ -159,7 +183,12 @@ def tool_command_helps(tool: str) -> dict[str, str]:
 
 
 def render_tools_markdown(cfg: dict[str, Any]) -> str:
-    """Build ``## Tools`` section from ``bin:`` + enable-filtered helps."""
+    """Build a compact ``## Tools`` index from ``bin:``.
+
+    The command metadata is still used to restrict wrappers, but descriptions
+    belong in the skill or CLI help.  Repeating them in every instance wastes
+    context and makes the generated section compete with task-specific rules.
+    """
     bins = normalize_bin(cfg)
     if not bins:
         return "## Tools\n\n_(no bin tools configured)_\n"
@@ -171,20 +200,17 @@ def render_tools_markdown(cfg: dict[str, Any]) -> str:
         helps = tool_command_helps(via if via != "schedule" else "schedule")
         if not helps and via == name:
             helps = tool_command_helps(name)
-        available = list(helps.keys())
-        enabled = resolve_enable(available, enable)
-        path = f"./bin/{name}"
-        lines.append(f"- `{path}`" + (f" ({via})" if via != name else ""))
-        if not enabled:
-            lines.append("  - _(no subcommands matched enable)_")
-            continue
-        for cmd in enabled:
-            help_txt = helps.get(cmd) or ""
-            if help_txt:
-                lines.append(f"  - `{cmd}` — {help_txt}")
-            else:
-                lines.append(f"  - `{cmd}`")
-        lines.append("")
+        enabled = resolve_enable(list(helps), enable) if helps else []
+        label = f"`./bin/{name}`" + (f" ({via})" if via != name else "")
+        if not helps:
+            detail = "passthrough"
+        elif enable is None:
+            detail = "all commands"
+        elif enabled:
+            detail = "commands: " + ", ".join(f"`{cmd}`" for cmd in enabled)
+        else:
+            detail = "no enabled commands"
+        lines.append(f"- {label} — {detail}")
 
     skills = cfg.get("skills") or []
     npx = cfg.get("skills_npx") or []

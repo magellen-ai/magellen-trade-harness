@@ -1,6 +1,4 @@
-# Default strategy pack — one example rule, shipped disabled.
-# Enable by shadowing from local/: create schedule/rules.d/local/research-tick.yaml
-# with `enabled: true` (plus any changes), then `./bin/schedule reload`.
+# Default research tick（默认关闭；在 local/ 中 shadow 后 reload）。
 id: research-tick
 enabled: false
 trigger:
@@ -10,9 +8,4 @@ action:
   kind: wake-main
   timeout: 3600
   prompt: |
-    Scheduled research tick. Work through this checklist, then stop:
-    1. `./bin/clawstreet status` and `./bin/clawstreet portfolio` — account snapshot.
-    2. Read `memory/` notes for open theses and pending checks.
-    3. Decide: hold, or place a dry-run order with honest public reasoning
-       (only use `--live` if a note in memory/ explicitly authorizes it).
-    4. Write your decision and rationale back into `memory/` (append, dated).
+    完成一轮 ClawStreet 研究后停止。按 AGENTS.md 了解账户和记忆、收集必要证据、决定 hold 或订单（默认 dry-run），并把决定追加到 memory/。

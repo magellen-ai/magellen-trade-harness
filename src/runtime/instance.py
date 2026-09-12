@@ -13,14 +13,12 @@ from pathlib import Path
 from typing import Any, Optional
 
 try:
-    import yaml
-except ImportError:  # pragma: no cover
-    yaml = None  # type: ignore
-
-try:
     from dotenv import load_dotenv
 except ImportError:  # pragma: no cover
     load_dotenv = None  # type: ignore
+
+from . import config as config_mod
+from .paths import RepositoryPaths
 
 
 _ENV_REF = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)")
@@ -69,23 +67,32 @@ _MINIMAL_ENV_KEYS = frozenset(
 
 
 def repo_root() -> Path:
-    return Path(__file__).resolve().parent.parent.parent
+    return RepositoryPaths.discover().root
 
 
 def skills_root() -> Path:
-    return repo_root() / "skills"
+    return RepositoryPaths.discover().skills
 
 
 def instances_root() -> Path:
-    return repo_root() / "instances"
+    return RepositoryPaths.discover().instances
 
 
 def harnesses_root() -> Path:
-    return repo_root() / "configs" / "harnesses"
+    return RepositoryPaths.discover().harnesses
 
 
 def profiles_root() -> Path:
-    return repo_root() / "configs" / "profiles"
+    return RepositoryPaths.discover().profiles
+
+
+def providers_root() -> Path:
+    """Root for reusable model-provider connection definitions."""
+    return RepositoryPaths.discover().providers
+
+
+def agents_root() -> Path:
+    return RepositoryPaths.discover().agents
 
 
 def load_repo_dotenv(*, override: bool = False) -> Path:
@@ -113,21 +120,11 @@ def expand_env_refs(value: str) -> tuple[str, list[str]]:
 
 
 def load_yaml(path: Path) -> dict[str, Any]:
-    if yaml is None:
-        raise RuntimeError("PyYAML is required (uv sync installs it).")
-    with open(path, encoding="utf-8") as f:
-        data = yaml.safe_load(f) or {}
-    if not isinstance(data, dict):
-        raise ValueError(f"config must be a mapping: {path}")
-    return data
+    return config_mod.load_yaml(path)
 
 
 def write_yaml(path: Path, data: dict[str, Any]) -> None:
-    if yaml is None:
-        raise RuntimeError("PyYAML is required (uv sync installs it).")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        yaml.safe_dump(data, f, sort_keys=False, allow_unicode=True)
+    config_mod.write_yaml(path, data)
 
 
 def list_available_skills() -> list[str]:
@@ -179,6 +176,57 @@ def normalize_skills_npx(raw: Any) -> list[dict[str, Any]]:
             )
         # Instance-scoped only — never install with npx -g.
         out.append({"package": package, "skill": skill})
+    return out
+
+
+def resolve_skill_specs(raw: Any) -> list[dict[str, Any]]:
+    """Normalize unified skills entries from local path or npx source."""
+    if not raw:
+        return []
+    if not isinstance(raw, list):
+        raise ValueError("skills must be a list")
+    out = []
+    for item in raw:
+        if isinstance(item, str):
+            out.append({"source": "path", "path": item})
+        elif isinstance(item, dict) and "path" in item:
+            out.append({"source": "path", "path": str(item["path"])})
+        elif isinstance(item, dict) and "npx" in item:
+            npx = item["npx"]
+            if isinstance(npx, str):
+                if "@" not in npx:
+                    raise ValueError("skills npx string must be package@skill")
+                package, skill = npx.split("@", 1)
+            else:
+                if not isinstance(npx, dict):
+                    raise ValueError("skills npx entry must be a string or mapping")
+                package, skill = npx.get("package"), npx.get("skill")
+            if not package or not skill:
+                raise ValueError("skills npx entry needs package and skill")
+            out.append({"source": "npx", "package": str(package), "skill": str(skill)})
+        else:
+            raise ValueError(f"invalid skill entry: {item!r}")
+    return out
+
+
+def resolve_tools(raw: Any) -> dict[str, dict[str, Any]]:
+    """Resolve profile tool declarations through the CLI registry."""
+    if not raw:
+        return {}
+    from .tools import get_cli
+    out: dict[str, dict[str, Any]] = {}
+    for item in raw:
+        if isinstance(item, str):
+            tool_id, entry = item, {}
+        elif isinstance(item, dict) and item.get("cli"):
+            tool_id, entry = str(item["cli"]), dict(item)
+        else:
+            raise ValueError(f"invalid tool entry: {item!r}")
+        get_cli(tool_id)
+        if tool_id in out:
+            raise ValueError(f"duplicate tool declaration: {tool_id}")
+        entry.pop("cli", None)
+        out[tool_id] = entry
     return out
 
 
@@ -261,6 +309,7 @@ def resolve_instance_npx_skill_path(instance_dir: Path, skill_name: str) -> Path
         Path(instance_dir) / ".agents" / "skills" / skill_name,
         Path(instance_dir) / ".pi" / "skills" / skill_name,
         Path(instance_dir) / ".claude" / "skills" / skill_name,
+        Path(instance_dir) / ".grok" / "skills" / skill_name,
     ]
     for path in candidates:
         if (path / "SKILL.md").is_file():
@@ -285,8 +334,50 @@ def list_profiles() -> list[str]:
     if not root.is_dir():
         return []
     return sorted(
-        p.name for p in root.iterdir() if p.is_dir() and (p / "profile.yaml").is_file()
+        p.name for p in root.iterdir() if p.is_dir() and (p / "config.yaml").is_file()
     )
+
+
+def list_providers() -> list[str]:
+    """List provider ids declared under ``configs/providers``."""
+    root = providers_root()
+    if not root.is_dir():
+        return []
+    return sorted(p.stem for p in root.glob("*.yaml") if p.is_file())
+
+
+def list_agents() -> list[str]:
+    root = agents_root()
+    if not root.is_dir():
+        return []
+    return sorted(
+        p.name for p in root.iterdir() if p.is_dir() and (p / "agent.yaml").is_file()
+    )
+
+
+def load_agent(agent_id: str) -> dict[str, Any]:
+    path = agents_root() / agent_id / "agent.yaml"
+    if not path.is_file():
+        raise FileNotFoundError(
+            f"agent not found: {path} (available: {list_agents()})"
+        )
+    data = load_yaml(path)
+    data["_id"] = agent_id
+    data["_dir"] = path.parent
+    return data
+
+
+def load_provider(provider_id: str) -> dict[str, Any]:
+    """Load a provider connection definition without resolving its secret."""
+    path = providers_root() / f"{provider_id}.yaml"
+    if not path.is_file():
+        raise FileNotFoundError(
+            f"provider not found: {path} (available: {list_providers()})"
+        )
+    data = load_yaml(path)
+    data["_id"] = provider_id
+    data["_path"] = path
+    return data
 
 
 def load_harness(harness_id: str) -> dict[str, Any]:
@@ -303,17 +394,18 @@ def load_harness(harness_id: str) -> dict[str, Any]:
 
 def load_profile(profile_id: str) -> dict[str, Any]:
     root = profiles_root() / profile_id
-    meta_path = root / "profile.yaml"
-    if not meta_path.is_file():
-        raise FileNotFoundError(
-            f"profile not found: {meta_path} (available: {list_profiles()})"
-        )
-    meta = load_yaml(meta_path)
+    cfg_path = root / "config.yaml"
+    if not cfg_path.is_file():
+        raise FileNotFoundError(f"profile not found: {root} (available: {list_profiles()})")
+    meta = load_yaml(cfg_path)
     harness_id = meta.get("harness")
+    if not harness_id and meta.get("agent"):
+        harness_id = load_agent(str(meta["agent"])).get("harness")
     if not harness_id:
         raise ValueError(f"profile {profile_id!r} missing harness: in profile.yaml")
-    cfg_path = root / "config.yaml"
-    cfg = load_yaml(cfg_path) if cfg_path.is_file() else {}
+    cfg = dict(meta)
+    if not cfg.get("harness"):
+        cfg["harness"] = harness_id
     return {
         "_id": profile_id,
         "_dir": root,
@@ -325,27 +417,22 @@ def load_profile(profile_id: str) -> dict[str, Any]:
 
 
 def _deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
-    out = dict(base)
-    for key, value in overlay.items():
-        if key.startswith("_"):
-            continue
-        if isinstance(value, dict) and isinstance(out.get(key), dict):
-            out[key] = _deep_merge(out[key], value)
-        else:
-            out[key] = value
-    return out
+    return config_mod.deep_merge(base, overlay)
 
 
 def build_instance_config(
     name: str,
     profile_id: str,
     skills: Optional[list[str]] = None,
+    agent_id: Optional[str] = None,
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     """Merge harness ⊕ profile into an instance config dict.
 
     Returns (config, harness, profile).
     """
     profile = load_profile(profile_id)
+    if agent_id is None:
+        agent_id = str(profile["meta"].get("agent") or "") or None
     harness = load_harness(profile["harness"])
 
     cfg: dict[str, Any] = {}
@@ -370,14 +457,67 @@ def build_instance_config(
 
     cfg = _deep_merge(cfg, profile["config"])
 
-    selected = skills if skills is not None else list(cfg.get("skills") or [])
+    if agent_id:
+        agent = load_agent(agent_id)
+        agent_profile = str(agent.get("profile") or "").strip()
+        if agent_profile and agent_profile != profile_id:
+            raise ValueError(
+                f"agent {agent_id!r} belongs to profile {agent_profile!r}, "
+                f"not {profile_id!r}"
+            )
+        model_cfg = agent.get("model")
+        if model_cfg is not None:
+            if (
+                not isinstance(model_cfg, dict)
+                or not model_cfg.get("provider")
+                or not model_cfg.get("name")
+            ):
+                raise ValueError("agent model must contain provider and name")
+            provider = str(model_cfg["provider"])
+            provider_path = providers_root() / f"{provider}.yaml"
+            if not provider_path.is_file():
+                raise FileNotFoundError(
+                    f"model provider not found: {provider} (available: {list_providers()})"
+                )
+            provider_data = load_yaml(provider_path)
+            models = provider_data.get("models")
+            model_name = str(model_cfg["name"])
+            if isinstance(models, list) and model_name not in {str(item) for item in models}:
+                raise ValueError(
+                    f"model {model_name!r} is not declared by provider {provider!r}"
+                )
+        agent_harness = str(agent.get("harness") or profile["harness"])
+        for key in ("env", "skills", "skills_npx", "bin", "tools", "trade", "schedule"):
+            if key in agent:
+                cfg[key] = (
+                    _deep_merge(cfg.get(key, {}), agent[key])
+                    if isinstance(agent[key], dict)
+                    else agent[key]
+                )
+        if model_cfg is not None:
+            # Keep the historical bare ``model`` key for harness templates and
+            # expose the canonical provider-qualified reference separately.
+            # Older instances and third-party harnesses read ``model`` directly.
+            model_ref = config_mod.ModelRef(str(model_cfg["provider"]), model_name)
+            cfg["model"] = model_name
+            cfg["model_provider"] = model_ref.provider
+            cfg["model_ref"] = model_ref.qualified
+        cfg["harness"] = agent_harness
+        cfg["agent"] = agent_id
+
+    raw_skills = skills if skills is not None else list(cfg.get("skills") or [])
+    specs = resolve_skill_specs(raw_skills)
+    selected = [Path(s["path"]).name for s in specs if s["source"] == "path"]
     available = list_available_skills()
     unknown = [s for s in selected if s not in available]
     if unknown:
         raise FileNotFoundError(f"unknown skills {unknown}; available={available}")
 
     # Validate npx skill declarations (do not require them under repo skills/).
-    cfg["skills_npx"] = normalize_skills_npx(cfg.get("skills_npx"))
+    cfg["skill_specs"] = specs
+
+    if cfg.get("tools"):
+        cfg["bin"] = resolve_tools(cfg["tools"])
 
     # Normalize bin (legacy wrappers/expose → bin) into the instance config.
     from . import agent_context as ac_mod
@@ -388,7 +528,7 @@ def build_instance_config(
 
     cfg["name"] = name
     cfg["profile"] = profile_id
-    cfg["harness"] = profile["harness"]
+    cfg["harness"] = str(cfg.get("harness") or profile["harness"])
     cfg["skills"] = selected
     if not cfg.get("agent_context"):
         cfg["agent_context"] = "AGENTS.md"
@@ -504,14 +644,17 @@ def _write_restricted_wrapper(
     root = repo_root()
     if not verbs:
         raise ValueError(f"bin.{script_name}: enable matched no commands")
+    invalid = [verb for verb in verbs if not re.fullmatch(r"[A-Za-z0-9_-]+", verb)]
+    if invalid:
+        raise ValueError(f"bin.{script_name}: command names must be shell-safe: {invalid}")
     verb_pattern = "|".join(verbs)
     usage = f"usage: {script_name} {{{verb_pattern}}}"
     exec_line = " ".join(shlex.quote(x) for x in exec_argv)
     content = f"""#!/usr/bin/env bash
 # Generated by `harness instance sync-bin` from config.yaml `bin`; do not edit.
 set -euo pipefail
-ROOT="{root}"
-INSTANCE="{instance_dir.resolve()}"
+ROOT={shlex.quote(str(root))}
+INSTANCE={shlex.quote(str(instance_dir.resolve()))}
 export HARNESS_INSTANCE="$INSTANCE"
 CMD="${{1:-}}"
 case "$CMD" in
@@ -535,7 +678,7 @@ def compose_agent_context(
     instance_dir: Path,
     cfg: Optional[dict[str, Any]] = None,
 ) -> Path:
-    """Rewrite harness agent_context file = profile skeleton body + Tools/Rules appendix."""
+    """Rewrite agent context from the profile body and compact generated index."""
     from . import agent_context as ac_mod
 
     instance_dir = Path(instance_dir).resolve()
@@ -562,14 +705,30 @@ def compose_agent_context(
     }
     body = _expand_placeholders(skeleton_src.read_text(encoding="utf-8"), vars)
     body = ac_mod.strip_generated_sections(body)
-    appendix = ac_mod.render_generated_appendix(cfg)
+    appendix = ac_mod.render_tools_markdown(cfg)
+    # Profile instructions are authoritative.  Add generic trade defaults
+    # only when a trading profile has no boundary section of its own.
+    has_boundary = re.search(r"^##\s+.*(?:Rules|规则|边界|安全).*$", body, re.MULTILINE)
+    trade_tools = {"clawstreet", "paper-ashare", "okx"}
+    can_trade = False
+    for name, entry in ac_mod.normalize_bin(cfg).items():
+        via = str(entry.get("via") or name)
+        if via not in trade_tools:
+            continue
+        helps = ac_mod.tool_command_helps(via)
+        enabled = ac_mod.resolve_enable(list(helps), entry.get("enable"))
+        if "order" in enabled:
+            can_trade = True
+            break
+    if not has_boundary and can_trade:
+        appendix = appendix.rstrip() + "\n\n" + ac_mod.COMMON_RULES_MD
     dest = instance_dir / agent_context
     dest.write_text(body.rstrip() + "\n\n" + appendix, encoding="utf-8")
     return dest
 
 
 def sync_instance_bin(name: str) -> list[Path]:
-    """Regenerate instance bin/ from config ``bin:`` and refresh agent context."""
+    """Regenerate instance wrappers and refresh the compact agent context."""
     from . import agent_context as ac_mod
     from . import schedule as schedule_mod
 
@@ -638,7 +797,7 @@ def sync_instance_bin(name: str) -> list[Path]:
                 continue
             if path.name in managed_names:
                 continue
-            if path.name in {"pi"}:
+            if path.name in {"pi", "grok", "grok-exec"}:
                 continue  # harness materialize
             if path.name == "harness" or path.name in {
                 "clawstreet",
@@ -665,11 +824,11 @@ def _write_uv_wrapper_for(
     root = repo_root()
     content = f"""#!/usr/bin/env bash
 set -euo pipefail
-ROOT="{root}"
-INSTANCE="{instance_dir.resolve()}"
+ROOT={shlex.quote(str(root))}
+INSTANCE={shlex.quote(str(instance_dir.resolve()))}
 export HARNESS_INSTANCE="$INSTANCE"
 cd "$ROOT"
-exec uv run {uv_script} "$@"
+exec uv run {shlex.quote(uv_script)} "$@"
 """
     wrapper.write_text(content, encoding="utf-8")
     wrapper.chmod(wrapper.stat().st_mode | 0o111)
@@ -725,14 +884,14 @@ def _env_block_key(cfg: dict[str, Any]) -> str:
 
 
 def _parse_model(cfg: dict[str, Any]) -> tuple[str, str]:
-    """Split ``provider/model`` (or bare model id) from config ``model``."""
-    raw = str(cfg.get("model") or "").strip()
+    """Split the canonical model reference, with legacy-key compatibility."""
+    raw = str(cfg.get("model_ref") or cfg.get("model") or "").strip()
     if not raw:
         return "", ""
     if "/" in raw:
         provider, model_id = raw.split("/", 1)
         return provider.strip(), model_id.strip()
-    return "", raw
+    return str(cfg.get("model_provider") or "").strip(), raw
 
 
 def _template_vars(
@@ -766,6 +925,30 @@ def resolve_env_from(
     return key, env, missing
 
 
+def _runtime_path(current: str) -> str:
+    """Prepend user tool dirs so cron/systemd can find ``uv`` and real ``pi``.
+
+    Cron often has ``PATH=/usr/bin:/bin``. ``minimal`` copies that through, so
+    wake hooks fail with 127. Do **not** prepend instance ``bin/``: ``bin/pi``
+    wraps ``harness instance launch``, which execs ``pi`` again and would
+    recurse. Instance wrappers stay ``./bin/…`` in agent prompts.
+    """
+    extras: list[str] = []
+    home = Path.home()
+    for rel in ((".local", "bin"), (".npm-global", "bin"), ("bin",)):
+        candidate = home.joinpath(*rel)
+        if candidate.is_dir():
+            extras.append(str(candidate))
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for part in extras + [p for p in current.split(os.pathsep) if p]:
+        if part in seen:
+            continue
+        seen.add(part)
+        ordered.append(part)
+    return os.pathsep.join(ordered)
+
+
 def instance_process_env(
     instance_dir: Path, cfg: Optional[dict[str, Any]] = None
 ) -> dict[str, str]:
@@ -794,6 +977,7 @@ def instance_process_env(
                 _expand_placeholders(str(v), vars), vars
             )
     env["HARNESS_INSTANCE"] = str(instance_dir)
+    env["PATH"] = _runtime_path(env.get("PATH", os.defpath))
     return env
 
 
@@ -933,7 +1117,8 @@ def sync_instance_skills(name: str) -> list[str]:
     instance_dir = instances_root() / name
     cfg = load_yaml(instance_dir / "config.yaml")
     selected = list(cfg.get("skills") or [])
-    npx_entries = normalize_skills_npx(cfg.get("skills_npx"))
+    specs = resolve_skill_specs(cfg.get("skill_specs")) if cfg.get("skill_specs") else []
+    npx_entries = [s for s in specs if s["source"] == "npx"]
     if npx_entries:
         ensure_npx_skills(instance_dir, npx_entries)
     dirs = list(cfg.get("skill_dirs") or [".claude/skills"])
@@ -953,7 +1138,12 @@ def init_instance(
     profile: str = DEFAULT_PROFILE,
     skills: Optional[list[str]] = None,
     force: bool = False,
+    agent: Optional[str] = None,
 ) -> Path:
+    if not agent:
+        raise ValueError("instance init requires --agent")
+    agent_cfg = load_agent(agent)
+    profile = str(agent_cfg.get("profile") or profile)
     if not name or "/" in name or name in (".", ".."):
         raise ValueError(f"invalid instance name: {name!r}")
 
@@ -963,7 +1153,9 @@ def init_instance(
             f"instance already exists: {instance_dir} (pass --force to recreate scaffolding)"
         )
 
-    cfg, _harness, profile_data = build_instance_config(name, profile, skills=skills)
+    cfg, _harness, profile_data = build_instance_config(
+        name, profile, skills=skills, agent_id=agent
+    )
     selected = list(cfg["skills"])
 
     for sub in ("workdir", "audit", "logs", "memory", "agent"):

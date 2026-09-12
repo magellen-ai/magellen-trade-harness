@@ -1,0 +1,5 @@
+harness: pi
+profile: clawstreet-pi-default
+model:
+  provider: magellen
+  name: gpt-5.6-luna

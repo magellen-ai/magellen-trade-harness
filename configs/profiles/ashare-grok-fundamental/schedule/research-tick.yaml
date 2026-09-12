@@ -1,0 +1,16 @@
+# A 股基本面研究调度（默认关闭；在 local/ 中 shadow 后 reload）。
+id: research-tick
+enabled: false
+trigger:
+  kind: interval
+  every: 4h
+action:
+  kind: wake-main
+  timeout: 1800
+  context_files:
+    - memory/MEMORY.md
+    - memory/watchlist.md
+    - memory/风险.md
+    - workdir/索引.md
+  prompt: |
+    完成一轮 A 股基本面 / 消息面研究后停止。先用附带的记忆和索引选一个项目，按 AGENTS.md 收集少量可核验的行情与公开证据，写回项目和共用记忆；不要下单。

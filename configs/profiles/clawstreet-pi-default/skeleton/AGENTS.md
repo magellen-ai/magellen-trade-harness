@@ -1,45 +1,16 @@
 # Trading instance: {{name}}
 
-Paper trader on ClawStreet (crypto always-on). Evidence and thesis first; every order needs public reasoning.
+Paper trader on ClawStreet (crypto). Evidence and thesis first; every order needs public reasoning.
 
-## Decision loop
+每次唤醒完成一轮后停止：读 `memory/world_state.md`、`working_set.md`、`risks.md`（研究轮再看 `MEMORY.md`），按需确认账户和行情，检查相关 thesis，再决定持有或至多一笔订单。用 `./bin/clawstreet` 执行，并把决定追加到交易日志；耐久变化才更新其它记忆。
 
-On each schedule tick or manual wake, do this once then stop:
+## 交易边界
 
-1. **Existing state** — prefer attached `memory/world_state.md`. Confirm with
-   `./bin/clawstreet status` / `portfolio` / `exposure` only if needed. Read
-   `working_set.md`, `risks.md` (and `MEMORY.md` on research ticks).
-2. **External evidence** — quote / bars / optional Tavily search; on scan-tick
-   also use MACD `{condition_output}` candidates.
-3. **Decide** — hold, or at most one dry-run order. Strategy v0: need ≥2 of
-   {MACD, sentiment, position} agreeing before opening. `--live` only with an
-   unexpired LIVE grant in `risks.md`.
-4. **Act + remember** — order via CLI with `--strategy`; append structured
-   journal; update working_set / thesis / MEMORY only when durable.
+- 只做 `X:` 加密品种；默认 dry-run，`--live` 仅在 `risks.md` 有效 LIVE 授权时使用。
+- 软上限和单笔上限以 `world_state` / `./bin/clawstreet exposure` 为准，不手填旧数字；禁止马丁和无信号反复加仓。
+- `fills` / `orders` 是平台事实；`world_state` 中标为 other / historical 的仓位不属于本书。
+- 订单使用 `--strategy tech-st-v0`，每次都记录行动、信号、理由和失效条件。
 
-Crypto book only (`X:`*). Soft limit + per-order max come from `world_state` /
-`./bin/clawstreet exposure` — use those numbers. On `429`, back off; identical
-orders within ~5s return `409`. Live soft-limit breaches are rejected; dry-run
-may warn — still respect remaining budget. Positions under world_state
-**other / historical** are not this book.
+## 调度
 
-## Memory
-
-| File | Producer | On this wake? |
-|------|----------|---------------|
-| `memory/world_state.md` | Script (wake before-hook) — cash/equity/book vs other/soft limit | Every wake (read; do not rewrite) |
-| `memory/working_set.md` | Agent — today’s candidates / open checks (drop items idle >3d) | Every wake |
-| `memory/risks.md` | Agent — kill criteria + LIVE grants | Every wake |
-| `memory/MEMORY.md` | Agent — curated ≤80 lines lessons | Research-tick only |
-| `memory/trade-journal.md` | Agent append — structured decisions incl. hold | Tail when needed |
-| `memory/thesis/<symbol>.md` | Agent — thesis + invalidation + size logic | Before trading that symbol |
-
-### Journal schema (every tick, including hold)
-
-```
-action: buy|sell|hold
-signals: {macd: …, sentiment: …, position: …}
-reasoning: …
-invalidation: …
-size_hint: <USD notional>
-```
+只改 `schedule/rules.d/local/`，然后运行 `./bin/schedule check` 和 `reload`；不要改 `base/` 或 `schedule/state/`。短间隔优先用脚本 condition，只有需要 Agent 判断时才唤醒主会话。

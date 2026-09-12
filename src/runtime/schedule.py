@@ -74,6 +74,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from . import instance as instance_mod
+from .schedule_schema import CronSpec, cron_matches, parse_cron, parse_interval
 
 SCHEMA_VERSION = 1
 TRIGGER_KINDS = ("interval", "cron")
@@ -89,10 +90,8 @@ CONTEXT_FILES_MODES = ("argv", "prompt_prefix")
 PRINT_FLAGS = ("-p", "--print")
 
 # Verbs the generated instance-facing ``bin/schedule`` wrapper may forward.
-AGENT_SAFE_VERBS = ("check", "reload", "status")
+AGENT_SAFE_VERBS = ("check", "reload", "status", "create", "list", "cancel")
 
-_INTERVAL_RE = re.compile(r"^(\d+)\s*(s|m|h|d)$")
-_INTERVAL_UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
 _PLACEHOLDER_RE = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
 
@@ -145,6 +144,43 @@ def ensure_layout(instance_dir: Path) -> None:
     state_dir(instance_dir).mkdir(parents=True, exist_ok=True)
 
 
+def create_agent_rule(instance_dir: Path, rule_id: str, *, every: str, prompt: str) -> Path:
+    """Create a local interval wake rule for an Agent and activate it."""
+    if not rule_id or not re.fullmatch(r"[A-Za-z0-9_-]+", rule_id):
+        raise ValueError("rule id must contain only letters, digits, _ or -")
+    parse_interval(every)
+    if not prompt.strip():
+        raise ValueError("prompt must be non-empty")
+    ensure_layout(instance_dir)
+    path = rules_dir(instance_dir, "local") / f"{rule_id}.yaml"
+    if path.exists():
+        raise FileExistsError(f"schedule rule already exists: {rule_id}")
+    data = {"id": rule_id, "enabled": True, "trigger": {"kind": "interval", "every": every}, "action": {"kind": "wake-main", "prompt": prompt}}
+    instance_mod.write_yaml(path, data)
+    snapshot, issues = reload_schedule(instance_dir)
+    if snapshot is None:
+        path.unlink(missing_ok=True)
+        raise ValueError("schedule rule rejected: " + "; ".join(i.message for i in issues if i.level == "error"))
+    journal(instance_dir, "agent_rule_created", rule=rule_id)
+    return path
+
+
+def list_agent_rules(instance_dir: Path) -> list[str]:
+    ensure_layout(instance_dir)
+    return sorted(p.stem for p in rules_dir(instance_dir, "local").glob("*.yaml"))
+
+
+def cancel_agent_rule(instance_dir: Path, rule_id: str) -> None:
+    path = rules_dir(instance_dir, "local") / f"{rule_id}.yaml"
+    if not path.is_file():
+        raise FileNotFoundError(f"local schedule rule not found: {rule_id}")
+    path.unlink()
+    snapshot, issues = reload_schedule(instance_dir)
+    if snapshot is None:
+        raise ValueError("schedule reload failed after cancel")
+    journal(instance_dir, "agent_rule_cancelled", rule=rule_id)
+
+
 def journal(instance_dir: Path, event: str, **detail: Any) -> None:
     ensure_layout(instance_dir)
     entry = {"ts": _now().isoformat(timespec="seconds"), "event": event, **detail}
@@ -156,103 +192,9 @@ def _now() -> datetime:
     return datetime.now().astimezone()
 
 
-# ---------------------------------------------------------------------------
-# Interval / cron parsing
-# ---------------------------------------------------------------------------
-
-
-def parse_interval(text: str) -> int:
-    """'30s' / '5m' / '4h' / '1d' → seconds."""
-    m = _INTERVAL_RE.match(str(text).strip())
-    if not m:
-        raise ValueError(f"bad interval {text!r} (expected e.g. 30s / 5m / 4h / 1d)")
-    seconds = int(m.group(1)) * _INTERVAL_UNITS[m.group(2)]
-    if seconds <= 0:
-        raise ValueError(f"interval must be positive: {text!r}")
-    return seconds
-
-
-@dataclass
-class CronSpec:
-    minute: frozenset[int]
-    hour: frozenset[int]
-    dom: frozenset[int]
-    month: frozenset[int]
-    dow: frozenset[int]
-    dom_star: bool
-    dow_star: bool
-
-
-_CRON_BOUNDS = [(0, 59), (0, 23), (1, 31), (1, 12), (0, 7)]  # dow 7 == sunday == 0
-
-
-def _parse_cron_field(field: str, lo: int, hi: int) -> tuple[frozenset[int], bool]:
-    """Supports * , - / with numeric values. Returns (values, is_star)."""
-    values: set[int] = set()
-    is_star = field == "*"
-    for part in field.split(","):
-        part = part.strip()
-        step = 1
-        if "/" in part:
-            part, step_s = part.split("/", 1)
-            step = int(step_s)
-            if step <= 0:
-                raise ValueError(f"bad step in {field!r}")
-        if part == "*":
-            start, end = lo, hi
-        elif "-" in part:
-            a, b = part.split("-", 1)
-            start, end = int(a), int(b)
-        else:
-            start = end = int(part)
-        if start < lo or end > hi or start > end:
-            raise ValueError(f"value out of range [{lo},{hi}] in {field!r}")
-        values.update(range(start, end + 1, step))
-    return frozenset(values), is_star
-
-
-def parse_cron(expr: str) -> CronSpec:
-    fields = str(expr).split()
-    if len(fields) != 5:
-        raise ValueError(
-            f"bad cron {expr!r}: need 5 fields (minute hour dom month dow), numeric only"
-        )
-    parsed = []
-    stars = []
-    for field, (lo, hi) in zip(fields, _CRON_BOUNDS):
-        try:
-            values, is_star = _parse_cron_field(field, lo, hi)
-        except ValueError as e:
-            raise ValueError(f"bad cron {expr!r}: {e}") from None
-        parsed.append(values)
-        stars.append(is_star)
-    dow = frozenset(0 if v == 7 else v for v in parsed[4])
-    return CronSpec(
-        minute=parsed[0],
-        hour=parsed[1],
-        dom=parsed[2],
-        month=parsed[3],
-        dow=dow,
-        dom_star=stars[2],
-        dow_star=stars[4],
-    )
-
-
-def cron_matches(spec: CronSpec, dt: datetime) -> bool:
-    if dt.minute not in spec.minute or dt.hour not in spec.hour:
-        return False
-    if dt.month not in spec.month:
-        return False
-    dom_ok = dt.day in spec.dom
-    dow_ok = ((dt.weekday() + 1) % 7) in spec.dow  # python Mon=0 → cron Sun=0
-    # Standard cron: if both dom and dow are restricted, either may match.
-    if spec.dom_star and spec.dow_star:
-        return True
-    if spec.dom_star:
-        return dow_ok
-    if spec.dow_star:
-        return dom_ok
-    return dom_ok or dow_ok
+def _tick_msg(ts: datetime, text: str) -> str:
+    """Prefix tick stdout (cron.log) with local ISO time."""
+    return f"{ts.isoformat(timespec='seconds')} {text}"
 
 
 # ---------------------------------------------------------------------------
@@ -1189,14 +1131,14 @@ def tick(
     try:
         fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
-        lines.append("TICK_SKIP another tick is running (lock held)")
+        lines.append(_tick_msg(_now(), "TICK_SKIP another tick is running (lock held)"))
         journal(instance_dir, "tick_skipped", reason="lock_held")
         return lines
 
     try:
         active = load_active(instance_dir)
         if active is None:
-            lines.append("TICK_NOOP no active schedule (run: harness schedule reload)")
+            lines.append(_tick_msg(_now(), "TICK_NOOP no active schedule (run: harness schedule reload)"))
             return lines
         # Drift is reported by `harness schedule status`, not on every tick.
 
@@ -1204,6 +1146,7 @@ def tick(
         cursor = _load_cursor(instance_dir)
         configured_actions = _configured_actions(instance_dir)
         fired = 0
+        skipped = 0
 
         for rule in active.get("rules", []):
             rid = rule["id"]
@@ -1218,7 +1161,7 @@ def tick(
                 continue
 
             if dry_run:
-                lines.append(f"WOULD_FIRE {rid} ({rule['trigger']['kind']})")
+                lines.append(_tick_msg(now, f"WOULD_FIRE {rid} ({rule['trigger']['kind']})"))
                 continue
 
             condition_output = ""
@@ -1226,8 +1169,9 @@ def tick(
             if cond is not None:
                 code, output = _run_shell(cond["run"], instance_dir, cond["timeout"])
                 if code != 0:
-                    lines.append(f"CONDITION_SKIP {rid} exit={code}")
+                    lines.append(_tick_msg(now, f"CONDITION_SKIP {rid} exit={code}"))
                     journal(instance_dir, "condition_skip", rule=rid, exit=code)
+                    skipped += 1
                     continue
                 condition_output = output.strip()[:CONDITION_OUTPUT_LIMIT]
 
@@ -1250,7 +1194,7 @@ def tick(
             entry["last_fired"] = now.isoformat(timespec="seconds")
             fired += 1
             status = "FIRED" if code == 0 else f"FIRED_ERR exit={code}"
-            lines.append(f"{status} {rid} action={action['kind']} {detail}")
+            lines.append(_tick_msg(now, f"{status} {rid} action={action['kind']} {detail}"))
             journal(
                 instance_dir,
                 "fired" if code == 0 else "fire_error",
@@ -1262,10 +1206,14 @@ def tick(
 
         if not dry_run:
             _save_cursor(instance_dir, cursor)
-        if fired == 0 and not any(line.startswith("WOULD_FIRE") for line in lines):
-            lines.append("TICK_OK nothing due")
+        if dry_run:
+            lines.append(_tick_msg(now, "TICK_OK (dry-run)"))
+        elif fired:
+            lines.append(_tick_msg(now, f"TICK_OK fired={fired}"))
+        elif skipped:
+            lines.append(_tick_msg(now, f"TICK_OK condition_skip={skipped}"))
         else:
-            lines.append(f"TICK_OK fired={fired}" if not dry_run else "TICK_OK (dry-run)")
+            lines.append(_tick_msg(now, "TICK_OK nothing due"))
         return lines
     finally:
         fcntl.flock(lock_file, fcntl.LOCK_UN)

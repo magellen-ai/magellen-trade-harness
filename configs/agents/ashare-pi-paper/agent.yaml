@@ -1,0 +1,6 @@
+# Runtime agent: harness plus provider/model. Workspace comes from the profile.
+harness: pi
+profile: ashare-pi-paper
+model:
+  provider: magellen
+  name: grok-4.6

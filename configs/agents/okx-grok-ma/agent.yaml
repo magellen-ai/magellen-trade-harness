@@ -1,0 +1,5 @@
+harness: grok-build
+profile: okx-grok-ma
+model:
+  provider: magellen
+  name: grok-4.5

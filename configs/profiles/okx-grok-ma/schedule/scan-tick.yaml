@@ -1,0 +1,24 @@
+# OKX demo dual-MA scan（默认关闭；在 local/ 中 shadow 后 reload）。
+id: scan-tick
+enabled: false
+trigger:
+  kind: interval
+  every: 15m
+condition:
+  kind: script
+  timeout: 120
+  run: >
+    uv run python scripts/ma_scan.py
+    --inst BTC-USDT --bar 1H --fast 7 --slow 25
+action:
+  kind: wake-main
+  timeout: 900
+  context_files:
+    - memory/world_state.md
+    - memory/working_set.md
+    - memory/risks.md
+    - memory/MEMORY.md
+  prompt: |
+    完成一轮 OKX Demo 扫描后停止。condition 输出如下：
+    {condition_output}
+    按 AGENTS.md 核对状态与双均线信号，只在 thesis 仍有效时做至多一笔 Demo 订单；否则 hold，并追加交易日志。

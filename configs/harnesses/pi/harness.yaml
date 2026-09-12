@@ -51,16 +51,17 @@ schedule_actions:
           - instance
           - sync-settings
           - "{instance}"
-      - argv:
+      - cwd: instance
+        argv:
           - uv
           - run
           - python
           - .agents/skills/clawstreet-trade/scripts/world_state.py
+    # No -c: each schedule wake is a new session. Durable state is memory/ files.
     argv:
       - pi
       - -p
       - "{prompt}"
-      - -c
       - --approve
       - --no-extensions
       - --no-prompt-templates

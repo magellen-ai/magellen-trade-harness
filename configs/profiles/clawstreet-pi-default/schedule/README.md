@@ -15,7 +15,7 @@ Ships three rules **disabled** by default:
 
 | Rule | Trigger | Condition | Purpose |
 |------|---------|-----------|---------|
-| `scan-tick` | interval 1h | `macd_scan.py` (exit 1 = skip) | MACD cross → wake |
+| `scan-tick` | interval 1h | instance `scripts/macd_scan.py` (exit 1 = skip) | MACD cross → wake |
 | `research-tick` | interval 4h | none | Routine patrol |
 | `risk-tick` | cron `0 9,21 * * *` | none | Reduce-only reconcile |
 

@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """MACD(12,26,9) scan — emit new golden/death crosses only (stateful dedupe).
 
+Profile/instance strategy helper (copied into instance ``scripts/``).
+Not part of the generic ``investment-search`` skill.
+
 Exit 0 + JSON candidates on stdout when at least one *new* cross appears.
 Exit 1 when no new signals (schedule condition_skip).
 Exit 2 on usage / hard errors.

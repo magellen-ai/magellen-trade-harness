@@ -1,25 +1,22 @@
-# ClawStreet paper (crypto book) on Pi.
-# One ClawStreet agent per instance (separate paper account).
-model: aiproxy/gpt-5.6-luna
 skills:
-  - clawstreet-trade
-  - investment-search
-# Agent-facing bin/ tools. enable entries are regex (re.fullmatch); omit = all.
-bin:
-  clawstreet:
-    # Everything except register (operator-only).
-    enable: ["(?!register$).*"]
-  schedule:
-    via: schedule
-    enable: [check, reload, status]
+- path: skills/clawstreet-trade
+- path: skills/investment-search
 trade:
   default_dry_run: true
   book_tag: crypto-pi
   soft_limit_usd: 20000
-  per_order_max_usd: 2000
-  symbol_prefix: "X:"
-# Launch secrets from repo .env ($VAR). Path agent/secrets.env is fixed for trade keys.
+  per_order_max_usd: 8000
+  symbol_prefix: 'X:'
 env:
   AIPROXY_API_KEY: $AIPROXY_API_KEY
-  # Optional; investment-search/scripts/search.py skips cleanly if unset.
   TAVILY_API_KEY: $TAVILY_API_KEY
+tools:
+- cli: clawstreet
+  enable:
+  - (?!register$).*
+- cli: schedule
+  enable:
+  - check
+  - reload
+  - status
+agent: clawstreet-pi-default

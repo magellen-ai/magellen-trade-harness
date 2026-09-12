@@ -1,23 +1,36 @@
-# A-share paper on Pi: hithink-finance (npx, instance-scoped) + paper-ashare + Tavily.
-# Local paper accounts via paper-ashare (--account). Optional web evidence via Tavily.
-model: aiproxy/grok-4.6
 skills:
-  - paper-ashare-trade
-  - investment-search
-# Official skills via project-scoped `npx skills add` (cwd = instance; NO -g).
-skills_npx:
-  - package: HiThink-Tech/Financial-API
+- path: skills/paper-ashare-trade
+- path: skills/investment-search
+- npx:
+    package: HiThink-Tech/Financial-API
     skill: hithink-finance
-bin:
-  paper-ashare: {}
-  fuyao: {}
-  schedule:
-    via: schedule
-    enable: [check, reload, status]
 trade:
   default_dry_run: true
   default_account: default
+schedule:
+  actions:
+    wake-main:
+      before:
+      - argv:
+        - uv
+        - run
+        - harness
+        - instance
+        - sync-settings
+        - '{instance}'
 env:
   AIPROXY_API_KEY: $AIPROXY_API_KEY
   HITHINK_FINANCE_API_KEY: $HITHINK_FINANCE_API_KEY
   TAVILY_API_KEY: $TAVILY_API_KEY
+agent: ashare-pi-paper
+tools:
+- cli: paper-ashare
+- cli: fuyao
+- cli: schedule
+  enable:
+  - check
+  - reload
+  - status
+  - create
+  - list
+  - cancel

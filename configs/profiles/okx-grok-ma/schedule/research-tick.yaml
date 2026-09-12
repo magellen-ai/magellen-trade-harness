@@ -1,0 +1,16 @@
+# OKX demo research tick（默认关闭；在 local/ 中 shadow 后 reload）。
+id: research-tick
+enabled: false
+trigger:
+  kind: interval
+  every: 1h
+action:
+  kind: wake-main
+  timeout: 900
+  context_files:
+    - memory/world_state.md
+    - memory/working_set.md
+    - memory/risks.md
+    - memory/MEMORY.md
+  prompt: |
+    完成一轮 OKX Demo 双均线巡检后停止。使用附带记忆和 `./bin/okx` 检查行情、持仓与策略单，按 AGENTS.md 决定 hold 或至多一笔订单并记账；不要切换实盘。

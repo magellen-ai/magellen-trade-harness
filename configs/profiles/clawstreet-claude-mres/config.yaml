@@ -1,18 +1,20 @@
-# Same harness as clawstreet-claude-default; Magellen Research (MRES) voice + routing.
-model: claude
 skills:
-  - clawstreet-trade
-bin:
-  clawstreet:
-    enable: ["(?!register$).*"]
-  schedule:
-    via: schedule
-    enable: [check, reload, status]
+- path: skills/clawstreet-trade
 trade:
   default_dry_run: true
 env:
   ANTHROPIC_BASE_URL: $ANTHROPIC_BASE_URL
   ANTHROPIC_API_KEY: $ANTHROPIC_API_KEY
-  ANTHROPIC_MODEL: $ANTHROPIC_MODEL
-  ANTHROPIC_DEFAULT_SONNET_MODEL: $ANTHROPIC_MODEL
-  ENABLE_TOOL_SEARCH: "true"
+  ANTHROPIC_MODEL: claude
+  ANTHROPIC_DEFAULT_SONNET_MODEL: claude
+  ENABLE_TOOL_SEARCH: 'true'
+tools:
+- cli: clawstreet
+  enable:
+  - (?!register$).*
+- cli: schedule
+  enable:
+  - check
+  - reload
+  - status
+agent: clawstreet-claude-mres
